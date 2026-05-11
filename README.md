@@ -14,7 +14,7 @@ The app supports:
 - t-SNE visualization
 - CSV export for results
 - parallel CLI execution for one dataset (speedup on multi-core servers)
-- batch manifest + script to run the CLI over many datasets sequentially
+- shell batch script (`run_batch_parallel.sh`) to run the CLI over many datasets sequentially
 
 ---
 
@@ -254,28 +254,24 @@ python3 parallel_complexity_cli.py \
 
 ## 4) Batch run (many datasets, one after another)
 
-Use a **manifest** (`batch_manifest.tsv`) where **each row** is one dataset: `source`, `ref` (URL or CSV path), and `label_column`. The helper runs `parallel_complexity_cli.py` **sequentially** for each row (each run still uses `--n-jobs` in parallel internally). All rows can share one **`--output-csv`**; the CLI **upserts** by `dataset_name` so you get one growing table.
+Edit **`run_batch_parallel.sh`** in the repo root:
 
-- **`batch_manifest.tsv`** — example list (UCI links + `target`). Edit this file to add/remove rows or switch to `csv` + absolute path.
-- **`run_batch_parallel.py`** — reads the manifest and passes shared flags (`--library`, `--n-jobs`, `--missing-values`, metrics, output path).
-- **`run_batch_parallel.sh`** — thin wrapper: `./run_batch_parallel.sh` (same args as the Python script).
+- At the top, set shared **`parallel_complexity_cli.py`** options (`LIBRARY`, `N_JOBS`, `MISSING_VALUES`, `OUTPUT_CSV`, metric lists, `NO_PROGRESS`, `CONTINUE_ON_ERROR`, `DRY_RUN`).
+- In the **`DATASETS=( ... )`** array, add one quoted string per dataset:  
+  **`source|ref|label_column`**  
+  - `source`: `uci`, `openml`, or `csv`  
+  - `ref`: full UCI/OpenML URL (or id), or **absolute path** to a CSV when `source` is `csv`  
+  - `label_column`: name of the target column in the dataframe the CLI sees (`target` for UCI/OpenML loaded by this CLI; your real column name for your own CSV)
 
-**Label column:** For `uci` / `openml` loaded by `parallel_complexity_cli.py`, the merged label column is always named **`target`**, so use `target` in the manifest unless you use **`csv`** with your own file (then set the real column name).
+The script runs **`parallel_complexity_cli.py` once per entry, in order** (each run still uses `N_JOBS` internally). One **`OUTPUT_CSV`** accumulates rows (CLI **upserts** by `dataset_name`).
 
 ```bash
 cd /path/to/DataComplexity
-./run_batch_parallel.sh \
-  --n-jobs 16 \
-  --missing-values impute_median \
-  --library both \
-  --output-csv results/my_batch.csv
+chmod +x run_batch_parallel.sh
+./run_batch_parallel.sh
 ```
 
-Useful flags:
-
-- `--dry-run` — print commands only
-- `--continue-on-error` — skip failures and continue
-- `--no-progress` — quiet CLI runs (less noise in logs)
+Set `DRY_RUN=1` at the top of the script to print commands without running.
 
 ---
 
