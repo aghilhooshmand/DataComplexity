@@ -7,3 +7,4 @@ pycol-complexity>=1.0.0
 pymfe>=0.4.2
 openml>=0.14.2
 ucimlrepo>=0.0.7
+tqdm>=4.66.0

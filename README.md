@@ -179,6 +179,7 @@ This is useful when:
 
 - Runs selected metric tasks in parallel using multiprocessing
 - Supports `pycol`, `pymfe`, or `both`
+- **Progress feedback** (when `stderr` is a TTY): numbered phases (load → encode → each library → save) plus a **per-metric progress bar** (`tqdm` on `stderr`). Install deps with `pip install -r requirements.txt` (includes `tqdm`). Use **`--no-progress`** for silent, machine-friendly logs.
 - Merges all computed metrics into one final CSV row
 - Keeps metric name prefixes:
   - `pycol_*`
@@ -272,6 +273,9 @@ pip install -r requirements.txt
   - check ID/link format
   - ensure internet connection
   - verify that dataset has target/label information
+
+- **`drop_rows` leaves no rows (e.g. UCI Adult):**  
+  Adult has missing values in several features ([UCI Adult](https://archive.ics.uci.edu/dataset/2/adult)). With `drop_rows`, only rows with **no** NaN in **any** feature survive, which can delete the whole table. Use **`impute_median`** or **`impute_mean`** for this dataset, or keep `drop_rows` only if you accept a much smaller complete-case subset (the app now drops all-NaN feature columns first, then listwise row deletion).
 
 ---
 

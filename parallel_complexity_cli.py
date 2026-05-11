@@ -4,8 +4,9 @@ from __future__ import annotations
 import argparse
 import multiprocessing as mp
 import re
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -123,19 +124,61 @@ def parse_metrics_arg(metrics_arg: str, library: str) -> list[str]:
     return [m.strip() for m in metrics_arg.split(",") if m.strip()]
 
 
+def _progress_sink(enabled: bool, msg: str, *, end: str = "\n") -> None:
+    if enabled:
+        print(msg, end=end, file=sys.stderr, flush=True)
+
+
 def run_parallel_jobs(
     library: str,
     x: np.ndarray,
     y: np.ndarray,
     metrics: list[str],
     n_jobs: int,
+    *,
+    show_progress: bool,
+    desc: str,
 ) -> dict[str, Any]:
     if not metrics:
         return {}
-    worker = pycol_metric_job if library == "pycol" else pymfe_metric_job
+    worker: Callable[[tuple[np.ndarray, np.ndarray, str]], tuple[str, Any]] = (
+        pycol_metric_job if library == "pycol" else pymfe_metric_job
+    )
     inputs = [(x, y, m) for m in metrics]
+    total = len(inputs)
+    use_tqdm = False
+    if show_progress:
+        try:
+            from tqdm import tqdm  # type: ignore[import-untyped]
+
+            use_tqdm = True
+        except ImportError:
+            use_tqdm = False
+
     with mp.Pool(processes=n_jobs) as pool:
-        out = pool.map(worker, inputs)
+        if show_progress and use_tqdm:
+            out = list(
+                tqdm(
+                    pool.imap_unordered(worker, inputs, chunksize=1),
+                    total=total,
+                    desc=desc,
+                    unit="metric",
+                    file=sys.stderr,
+                    leave=True,
+                )
+            )
+        elif show_progress:
+            out = []
+            for i, item in enumerate(pool.imap_unordered(worker, inputs, chunksize=1), start=1):
+                out.append(item)
+                pct = 100 * i // total if total else 100
+                _progress_sink(
+                    True,
+                    f"\r{desc}: {i}/{total} metrics ({pct}%)",
+                    end="" if i < total else "\n",
+                )
+        else:
+            out = pool.map(worker, inputs)
     return {k: v for k, v in out}
 
 
@@ -211,15 +254,42 @@ def main() -> None:
         ),
     )
     parser.add_argument("--output-csv", default="parallel_dataset_complexity.csv")
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bar and step messages (for logs/CI).",
+    )
     args = parser.parse_args()
 
+    show_progress = not args.no_progress and sys.stderr.isatty()
+
+    def step(msg: str) -> None:
+        _progress_sink(show_progress, msg)
+
+    run_pycol = args.library in ("pycol", "both")
+    run_pymfe = args.library in ("pymfe", "both")
+    total_phases = 2 + int(run_pycol) + int(run_pymfe) + 1  # load, prepare, *metrics, save
+    phase_i = 0
+
+    def phase(msg: str) -> None:
+        nonlocal phase_i
+        phase_i += 1
+        step(f"[{phase_i}/{total_phases}] {msg}")
+
+    phase("Loading dataset …")
     df, dataset_name = load_dataset(args.source, args.ref)
+    step(f"      Loaded `{dataset_name}`  shape={df.shape}")
     if args.label_column not in df.columns:
         raise ValueError(
             f"Label column '{args.label_column}' not found. Available columns: {list(df.columns)}"
         )
 
+    phase("Encoding features and labels …")
     x, y, _ = prepare_xy(df, label_col=args.label_column, missing_values=args.missing_values)
+    step(
+        f"      Ready: n_rows={x.shape[0]}  n_features={x.shape[1]}  n_classes={int(np.unique(y).size)}  "
+        f"missing_values={args.missing_values!r}  n_jobs={max(1, args.n_jobs)}"
+    )
     result: dict[str, Any] = {
         "dataset_name": dataset_name,
         "source": args.source,
@@ -235,29 +305,54 @@ def main() -> None:
 
     n_jobs = int(max(1, args.n_jobs))
 
-    if args.library in ("pycol", "both"):
+    if run_pycol:
         pycol_metrics = (
             parse_metrics_arg(args.metrics, "pycol")
             if args.library == "pycol"
             else parse_metrics_arg(args.pycol_metrics, "pycol")
         )
-        result.update(run_parallel_jobs("pycol", x, y, pycol_metrics, n_jobs))
+        phase(f"PyCol: computing {len(pycol_metrics)} metric(s) in parallel …")
+        result.update(
+            run_parallel_jobs(
+                "pycol",
+                x,
+                y,
+                pycol_metrics,
+                n_jobs,
+                show_progress=show_progress,
+                desc="pycol",
+            )
+        )
+        step("      PyCol done.")
 
-    if args.library in ("pymfe", "both"):
+    if run_pymfe:
         pymfe_metrics = (
             parse_metrics_arg(args.metrics, "pymfe")
             if args.library == "pymfe"
             else parse_metrics_arg(args.pymfe_metrics, "pymfe")
         )
-        result.update(run_parallel_jobs("pymfe", x, y, pymfe_metrics, n_jobs))
+        phase(f"PyMFE: computing {len(pymfe_metrics)} metric(s) in parallel …")
+        result.update(
+            run_parallel_jobs(
+                "pymfe",
+                x,
+                y,
+                pymfe_metrics,
+                n_jobs,
+                show_progress=show_progress,
+                desc="pymfe",
+            )
+        )
+        step("      PyMFE done.")
 
     out_path = Path(args.output_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    phase("Merging and writing CSV …")
     merged_df = upsert_result_row(out_path, result, key_col="dataset_name")
     merged_df.to_csv(out_path, index=False)
-    print(f"Saved: {out_path}")
-    print(f"Rows: {len(merged_df)}")
-    print(f"Columns: {len(merged_df.columns)}")
+    print(f"Saved: {out_path}", file=sys.stderr if show_progress else sys.stdout, flush=True)
+    print(f"Rows: {len(merged_df)}", file=sys.stderr if show_progress else sys.stdout, flush=True)
+    print(f"Columns: {len(merged_df.columns)}", file=sys.stderr if show_progress else sys.stdout, flush=True)
 
 
 if __name__ == "__main__":

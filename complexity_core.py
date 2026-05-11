@@ -109,9 +109,44 @@ def prepare_xy(
     merged["__target__"] = _replace_missing_tokens(merged["__target__"])
     merged = merged.dropna(subset=["__target__"], axis=0).reset_index(drop=True)
 
+    if merged.empty:
+        raise ValueError(
+            "No rows left after dropping rows with missing labels. Check label_column and raw data."
+        )
+
     if missing_values == "drop_rows":
         feat_cols = [c for c in merged.columns if c != "__target__"]
+        # Columns that are entirely NaN carry no signal but make every row "incomplete" for
+        # listwise deletion — drop them first, then drop rows with any remaining NaN.
+        if feat_cols:
+            nonempty = [c for c in feat_cols if merged[c].notna().any()]
+            dropped_all_nan = sorted(set(feat_cols) - set(nonempty))
+            feat_cols = nonempty
+            if dropped_all_nan:
+                merged = merged.drop(columns=dropped_all_nan, errors="ignore")
+        if not feat_cols:
+            raise ValueError(
+                "drop_rows: no usable feature columns remain (all were entirely NaN after encoding). "
+                "Use impute_median / impute_mean / fill_zero, or verify the dataset."
+            )
+        n_before = int(len(merged))
+        row_complete = merged[feat_cols].notna().all(axis=1)
+        n_complete = int(row_complete.sum())
+        merged_before_row_drop = merged.copy()
         merged = merged.dropna(subset=feat_cols, how="any", axis=0).reset_index(drop=True)
+        if merged.empty and n_before > 0:
+            nan_frac = {
+                c: float(1.0 - merged_before_row_drop[c].notna().mean()) for c in feat_cols
+            }
+            worst = sorted(nan_frac.items(), key=lambda kv: -kv[1])[:8]
+            worst_txt = ", ".join(f"{c} ({p:.0%} missing)" for c, p in worst)
+            raise ValueError(
+                "drop_rows: no row has complete data in all feature columns after encoding. "
+                f"Rows with valid label before row-drop: {n_before}; rows with zero missing features: {n_complete}. "
+                f"Highest missing-rate features: {worst_txt}. "
+                "For UCI Adult, prefer --missing-values impute_median (or impute_mean). "
+                "drop_rows only keeps rows with no NaN in any feature column."
+            )
 
     if merged.empty:
         raise ValueError(
