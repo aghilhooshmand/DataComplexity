@@ -21,6 +21,7 @@ def extract_last_int(text: str) -> int | None:
 
 
 def load_dataset(source: str, ref: str) -> tuple[pd.DataFrame, str]:
+    ref = str(ref).strip()
     source_l = source.strip().lower()
 
     if source_l == "csv":
@@ -171,7 +172,11 @@ def main() -> None:
         description="Parallel complexity runner for one dataset (CSV/UCI/OpenML)."
     )
     parser.add_argument("--source", required=True, choices=["csv", "uci", "openml"])
-    parser.add_argument("--ref", required=True, help="CSV path or UCI/OpenML id/link.")
+    parser.add_argument(
+        "--ref",
+        required=True,
+        help="For csv: file path. For uci/openml: numeric dataset id (e.g. 53) or full URL; id is parsed from the string.",
+    )
     parser.add_argument("--label-column", default="target", help="Label column for dataset.")
     parser.add_argument("--library", default="both", choices=["pycol", "pymfe", "both"])
     parser.add_argument(

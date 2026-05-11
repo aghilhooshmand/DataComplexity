@@ -8,6 +8,20 @@ from sklearn.manifold import TSNE
 
 from metric_catalog import PYMFE_COMPLEXITY_METRICS
 
+MISSING_VALUE_STRATEGIES: tuple[str, ...] = (
+    "drop_rows",
+    "fill_zero",
+    "impute_median",
+    "impute_mean",
+)
+
+MISSING_VALUE_LABELS: dict[str, str] = {
+    "drop_rows": "Drop any row that still has missing values after encoding (strict; can remove many rows)",
+    "fill_zero": "Fill remaining missing values with 0",
+    "impute_median": "Impute with column median; remaining gaps filled with 0 (good default for messy tabular data)",
+    "impute_mean": "Impute with column mean; remaining gaps filled with 0",
+}
+
 PYCOL_ALL_METRICS: list[str] = [
     "F1",
     "F1v",
@@ -41,12 +55,33 @@ PYCOL_ALL_METRICS: list[str] = [
 ]
 
 
-def prepare_xy(df: pd.DataFrame, label_col: str) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+def _replace_missing_tokens(series: pd.Series) -> pd.Series:
+    """UCI/OpenML often use '?' or empty strings for missing categorical/numeric cells."""
+    if series.dtype == "object" or str(series.dtype).startswith("string"):
+        s = series.astype(str).str.strip()
+        s = s.replace({"?": np.nan, "": np.nan, "nan": np.nan, "NaN": np.nan, "None": np.nan})
+        return s
+    return series
+
+
+def prepare_xy(
+    df: pd.DataFrame,
+    label_col: str,
+    *,
+    missing_values: str = "impute_median",
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     if label_col not in df.columns:
         raise ValueError(f"Label column '{label_col}' not found in dataset.")
+    if missing_values not in MISSING_VALUE_STRATEGIES:
+        raise ValueError(
+            f"missing_values must be one of {MISSING_VALUE_STRATEGIES}, got {missing_values!r}"
+        )
 
     y_raw = df[label_col].copy()
     x_df = df.drop(columns=[label_col]).copy()
+
+    for col in x_df.columns:
+        x_df[col] = _replace_missing_tokens(x_df[col])
 
     cat_cols = [
         col
@@ -54,17 +89,36 @@ def prepare_xy(df: pd.DataFrame, label_col: str) -> tuple[np.ndarray, np.ndarray
         if x_df[col].dtype == "object" or str(x_df[col].dtype).startswith("category")
     ]
     if cat_cols:
-        x_df = pd.get_dummies(x_df, columns=cat_cols, dtype=float)
+        x_df = pd.get_dummies(x_df, columns=cat_cols, dtype=float, dummy_na=True)
 
     for col in x_df.columns:
         x_df[col] = pd.to_numeric(x_df[col], errors="coerce")
 
+    if missing_values == "fill_zero":
+        x_df = x_df.fillna(0.0)
+    elif missing_values == "impute_median":
+        med = x_df.median(numeric_only=True)
+        x_df = x_df.fillna(med).fillna(0.0)
+    elif missing_values == "impute_mean":
+        mean = x_df.mean(numeric_only=True)
+        x_df = x_df.fillna(mean).fillna(0.0)
+    # drop_rows: leave NaNs until row filter below
+
     merged = x_df.copy()
     merged["__target__"] = y_raw
-    merged = merged.dropna(axis=0).reset_index(drop=True)
+    merged["__target__"] = _replace_missing_tokens(merged["__target__"])
+    merged = merged.dropna(subset=["__target__"], axis=0).reset_index(drop=True)
+
+    if missing_values == "drop_rows":
+        feat_cols = [c for c in merged.columns if c != "__target__"]
+        merged = merged.dropna(subset=feat_cols, how="any", axis=0).reset_index(drop=True)
 
     if merged.empty:
-        raise ValueError("No rows left after encoding/cleaning. Check missing values and types.")
+        raise ValueError(
+            "No rows left after encoding/cleaning. "
+            "Try a different missing-value strategy (e.g. impute_median instead of drop_rows), "
+            "or check the label column and raw data."
+        )
 
     x = merged.drop(columns=["__target__"]).to_numpy(dtype=np.float32)
     y_codes, _ = pd.factorize(merged["__target__"], sort=True)
@@ -129,9 +183,16 @@ def run_tsne(x: np.ndarray, y: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame({"tsne_1": emb[:, 0], "tsne_2": emb[:, 1], "label_code": y})
 
 
-def basic_info_row(df: pd.DataFrame, x: np.ndarray, y: np.ndarray, label_col: str) -> dict[str, Any]:
+def basic_info_row(
+    df: pd.DataFrame,
+    x: np.ndarray,
+    y: np.ndarray,
+    label_col: str,
+    *,
+    missing_values: str | None = None,
+) -> dict[str, Any]:
     counts = np.bincount(y) if y.size else np.array([0], dtype=int)
-    return {
+    out: dict[str, Any] = {
         "label_column": label_col,
         "n_rows_original": int(df.shape[0]),
         "n_columns_original": int(df.shape[1]),
@@ -140,6 +201,9 @@ def basic_info_row(df: pd.DataFrame, x: np.ndarray, y: np.ndarray, label_col: st
         "n_classes": int(np.unique(y).size),
         "majority_class_fraction": float(counts.max() / y.size) if y.size else np.nan,
     }
+    if missing_values is not None:
+        out["missing_values"] = missing_values
+    return out
 
 
 def available_metrics_by_library(library: str) -> list[str]:

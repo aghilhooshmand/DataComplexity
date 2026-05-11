@@ -126,9 +126,9 @@ This is useful when:
 ### What arguments it asks for
 
 - **Source**: `csv`, `uci`, or `openml`
-- **Dataset reference**:
+- **Dataset reference** (`--ref`):
   - CSV path (for `csv`)
-  - ID or link (for `uci` / `openml`)
+  - For `uci` / `openml`: **either** a plain numeric id (e.g. `53`, `61`) **or** a full dataset URL. The CLI finds the dataset id inside the string (same idea as the Streamlit pages).
 - **Metrics**: `all` or comma-separated list
 - **CPU cores**: `--n-jobs`
 - **Label column**: target/label column name
@@ -171,12 +171,25 @@ python3 parallel_complexity_cli.py \
   --output-csv results/uci_iris_pycol.csv
 ```
 
-#### C) OpenML (by id) + PyMFE + all metrics
+#### C) OpenML (by id or link) + PyMFE + all metrics
 
 ```bash
 python3 parallel_complexity_cli.py \
   --source openml \
   --ref "61" \
+  --label-column target \
+  --library pymfe \
+  --metrics all \
+  --n-jobs 6 \
+  --output-csv results/openml61_pymfe.csv
+```
+
+Same with a link instead of id:
+
+```bash
+python3 parallel_complexity_cli.py \
+  --source openml \
+  --ref "https://www.openml.org/d/61" \
   --label-column target \
   --library pymfe \
   --metrics all \
