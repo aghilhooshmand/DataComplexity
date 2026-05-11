@@ -10,9 +10,46 @@ The app supports:
 - single-dataset analysis
 - multi-dataset comparison
 - dataset loading from CSV upload, UCI, and OpenML
+- **configurable missing-value handling** for features (same options in Streamlit and CLI)
 - t-SNE visualization
 - CSV export for results
 - parallel CLI execution for one dataset (speedup on multi-core servers)
+
+---
+
+## Missing values (what they are and where to set them)
+
+Complexity metrics need a **numeric feature matrix** \(X\) and **integer class labels** \(y\). Raw tables often have missing or placeholder values (for example `?` in UCI Adult, empty cells, or invalid strings). This project applies a **fixed preprocessing pipeline**, then your chosen strategy fixes any remaining **NaN in feature columns only**.
+
+### Preprocessing order (always the same)
+
+1. **Token cleanup:** In string/object columns, values like `?`, empty string, `nan`, `None` (as text) are turned into true missing (NaN).
+2. **Categorical encoding:** Object/category feature columns are expanded with **one-hot encoding** (`pandas.get_dummies`, including a bucket for missing categories where applicable).
+3. **Numeric coercion:** Every feature column is converted with `to_numeric(..., errors="coerce")`, so anything that is not a number becomes NaN.
+
+After step 3, some cells may still be NaN. **You choose** what happens next using one of the strategies below.
+
+### The four strategies (feature columns only)
+
+| Internal name | User-facing idea | What happens |
+|---------------|------------------|----------------|
+| **`impute_median`** | Univariate median imputation (default) | Each feature column: missing cells are filled with that column’s **median** over non-missing rows. If an entire column is still missing (no non-NaN values), it is filled with **0**. Good default for messy real-world CSV/UCI data. |
+| **`impute_mean`** | Univariate mean imputation | Same as median, but using the column **mean** instead of median. |
+| **`fill_zero`** | Fill with zero | Every remaining NaN in features is set to **0**. Simple and fast; assumes “missing means zero” which may or may not suit your domain. |
+| **`drop_rows`** | Listwise deletion | Any row that still has **at least one** NaN in **any** feature column is **removed**. Strict and transparent, but on sparse or wide data you can lose many rows (or all rows if every row has some missing cell). |
+
+### Labels (target column)
+
+- Rows with a **missing label** are **always dropped**, regardless of strategy.
+- The chosen strategy is recorded in outputs as the column **`missing_values`** where that row is built via `basic_info_row` (Streamlit) or set explicitly (CLI).
+
+### Where to choose the strategy
+
+| Interface | Where |
+|-----------|--------|
+| **Streamlit — Complexity Calculator** | After choosing the label column: **“Missing values in features (after encoding)”**. Used for the dataset summary, metric computation, and t-SNE. |
+| **Streamlit — Dataset Comparison** | Control above libraries/metrics: same dropdown; applies to **every** dataset in the comparison list for metrics and t-SNE. |
+| **CLI** | `parallel_complexity_cli.py --missing-values {drop_rows,fill_zero,impute_median,impute_mean}` (default: `impute_median`). |
 
 ---
 
@@ -21,12 +58,14 @@ The app supports:
 - `🧮 Complexity Calculator`
   - Analyze one dataset
   - Choose `pycol`, `pymfe`, or both
+  - Choose **missing-value** strategy for features
   - Select all metrics or a custom subset
   - Download one-row complexity CSV
   - Visualize t-SNE
 
 - `📊 Dataset Comparison`
   - Add multiple datasets to a comparison list
+  - Choose one **missing-value** strategy shared by all listed datasets
   - Compute selected metrics across all datasets
   - Download comparison CSV
   - View grouped bar chart for selected metrics
@@ -208,21 +247,6 @@ python3 parallel_complexity_cli.py \
   - `--pycol-metrics`
   - `--pymfe-metrics`
 - If you pass a UCI/OpenML link, the script extracts the dataset ID automatically.
-
----
-
-## Missing values (features)
-
-`?`, empty strings, and similar tokens are treated as missing **before** numeric encoding.
-
-| Strategy | What it does |
-|----------|----------------|
-| `impute_median` | Fill each feature column with its median; any column still all-missing becomes 0. **Default** (works well for messy tabular data like UCI Adult). |
-| `impute_mean` | Same as median but using the column mean. |
-| `fill_zero` | Fill all remaining missing values with 0. |
-| `drop_rows` | Remove any row that still has a missing value in **any** feature after encoding (strict; can remove many rows). |
-
-Rows with a missing **label** are always dropped. The chosen strategy is stored in result CSVs as `missing_values` where applicable.
 
 ---
 
