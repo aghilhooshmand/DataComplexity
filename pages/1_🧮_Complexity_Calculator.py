@@ -8,6 +8,8 @@ import pandas as pd
 import streamlit as st
 
 from complexity_core import (
+    MISSING_VALUE_LABELS,
+    MISSING_VALUE_STRATEGIES,
     available_metrics_by_library,
     basic_info_row,
     compute_pymfe_metrics,
@@ -200,6 +202,13 @@ else:
 
 if df is not None:
     label_col = st.selectbox("Choose label/target column", options=list(df.columns))
+    missing_values = st.selectbox(
+        "Missing values in features (after encoding)",
+        options=list(MISSING_VALUE_STRATEGIES),
+        index=list(MISSING_VALUE_STRATEGIES).index("impute_median"),
+        format_func=lambda k: MISSING_VALUE_LABELS.get(str(k), str(k)),
+        help="Applies after turning categories into numbers. Rows with missing labels are always dropped.",
+    )
     st.subheader("Dataset summary")
     summary_lines: list[str] = []
     summary_lines.append(f"- **Source:** {dataset_meta.get('source', source)}")
@@ -222,8 +231,11 @@ if df is not None:
     summary_lines.append(f"- **Rows (original):** {int(df.shape[0])}")
     summary_lines.append(f"- **Columns (original):** {int(df.shape[1])}")
     summary_lines.append(f"- **Missing values (original total):** {int(df.isna().sum().sum())}")
+    summary_lines.append(f"- **Missing-value strategy:** `{missing_values}`")
     try:
-        x_preview, y_preview, merged_preview = prepare_xy(df, label_col=label_col)
+        x_preview, y_preview, merged_preview = prepare_xy(
+            df, label_col=label_col, missing_values=missing_values
+        )
         summary_lines.append(f"- **Rows (after cleaning):** {int(merged_preview.shape[0])}")
         summary_lines.append(f"- **Features (after encoding):** {int(x_preview.shape[1])}")
         summary_lines.append(f"- **Classes:** {int(len(set(y_preview.tolist())))}")
@@ -268,11 +280,11 @@ if df is not None:
             status_box = st.empty()
 
             status_box.info("Step 1/4: Preparing and cleaning dataset")
-            x, y, _ = prepare_xy(df, label_col=label_col)
+            x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
             progress.progress(25, text="Prepared dataset")
 
             status_box.info("Step 2/4: Building dataset summary")
-            result = basic_info_row(df, x, y, label_col)
+            result = basic_info_row(df, x, y, label_col, missing_values=missing_values)
             progress.progress(45, text="Built dataset summary")
 
             status_box.info(f"Step 3/4: Computing metrics with {', '.join(selected_libraries)}")
@@ -305,7 +317,7 @@ if df is not None:
             if "latest_xy" in st.session_state:
                 x, y = st.session_state["latest_xy"]
             else:
-                x, y, _ = prepare_xy(df, label_col=label_col)
+                x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
             tsne_df = run_tsne(x, y)
 
             fig, ax = plt.subplots(figsize=(8, 6))

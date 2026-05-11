@@ -47,13 +47,15 @@ st.markdown(
 ### Workspace Pages
 
 - **`Complexity Calculator`**  
-  Single-dataset complexity analysis with Upload/UCI/OpenML input, flexible metrics, CSV output, and t-SNE visualization.
+  Single-dataset complexity analysis with Upload/UCI/OpenML input, **missing-value handling** (drop rows / zero / median or mean impute), flexible metrics, CSV output, and t-SNE visualization.
 
 - **`Dataset Comparison`**  
-  Add multiple datasets, compute selected complexity metrics across all datasets, export comparison CSV, and visualize grouped bar-chart comparisons.
+  Add multiple datasets, same **missing-value** options for all listed sets, compute selected complexity metrics, export comparison CSV, grouped bar charts, and optional t-SNE grid.
 
 - **`Metric Reference`**  
   Browse supported metrics with short descriptions and references.
+
+**Command-line:** use `parallel_complexity_cli.py` with `--missing-values` for the same strategies on a server (see `README.md`).
 """
 )
 

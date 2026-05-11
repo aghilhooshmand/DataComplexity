@@ -10,7 +10,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from complexity_core import PYCOL_ALL_METRICS, get_all_pymfe_complexity_metrics, prepare_xy
+from complexity_core import (
+    MISSING_VALUE_STRATEGIES,
+    PYCOL_ALL_METRICS,
+    get_all_pymfe_complexity_metrics,
+    prepare_xy,
+)
 
 
 def extract_last_int(text: str) -> int | None:
@@ -195,6 +200,16 @@ def main() -> None:
         help="For library=both: pymfe metrics (all or comma-separated).",
     )
     parser.add_argument("--n-jobs", type=int, default=max(1, (mp.cpu_count() // 2)))
+    parser.add_argument(
+        "--missing-values",
+        default="impute_median",
+        choices=list(MISSING_VALUE_STRATEGIES),
+        help=(
+            "How to handle NaNs in feature columns after encoding: "
+            "drop_rows removes any row with a remaining missing value; "
+            "fill_zero / impute_median / impute_mean fill before modeling."
+        ),
+    )
     parser.add_argument("--output-csv", default="parallel_dataset_complexity.csv")
     args = parser.parse_args()
 
@@ -204,11 +219,12 @@ def main() -> None:
             f"Label column '{args.label_column}' not found. Available columns: {list(df.columns)}"
         )
 
-    x, y, _ = prepare_xy(df, label_col=args.label_column)
+    x, y, _ = prepare_xy(df, label_col=args.label_column, missing_values=args.missing_values)
     result: dict[str, Any] = {
         "dataset_name": dataset_name,
         "source": args.source,
         "label_column": args.label_column,
+        "missing_values": args.missing_values,
         "n_rows_original": int(df.shape[0]),
         "n_columns_original": int(df.shape[1]),
         "n_rows_used": int(x.shape[0]),

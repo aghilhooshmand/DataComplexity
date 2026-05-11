@@ -9,6 +9,8 @@ import pandas as pd
 import streamlit as st
 
 from complexity_core import (
+    MISSING_VALUE_LABELS,
+    MISSING_VALUE_STRATEGIES,
     available_metrics_by_library,
     basic_info_row,
     compute_pymfe_metrics,
@@ -104,10 +106,12 @@ def compute_for_dataset(
     label_col: str,
     selected_libraries: list[str],
     selected_by_library: dict[str, list[str]],
+    *,
+    missing_values: str,
 ) -> dict[str, Any]:
-    x, y, _ = prepare_xy(df, label_col=label_col)
+    x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
     rec = {"dataset_name": dataset_name}
-    rec.update(basic_info_row(df, x, y, label_col))
+    rec.update(basic_info_row(df, x, y, label_col, missing_values=missing_values))
     if "pycol" in selected_libraries:
         rec.update(compute_pycol_metrics(x, y, selected_by_library.get("pycol", [])))
     if "pymfe" in selected_libraries:
@@ -170,6 +174,15 @@ if datasets:
 else:
     st.caption("No datasets added yet.")
 
+missing_values = st.selectbox(
+    "Missing values in features (after encoding)",
+    options=list(MISSING_VALUE_STRATEGIES),
+    index=list(MISSING_VALUE_STRATEGIES).index("impute_median"),
+    format_func=lambda k: MISSING_VALUE_LABELS.get(str(k), str(k)),
+    help="Used for all datasets in the list when computing metrics or t-SNE. Rows with missing labels are always dropped.",
+    key="cmp_missing_values",
+)
+
 selected_libraries = st.multiselect(
     "Complexity libraries",
     options=["pycol", "pymfe"],
@@ -209,6 +222,7 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                         label_col=ds["label_col"],
                         selected_libraries=selected_libraries,
                         selected_by_library=selected_by_library,
+                        missing_values=missing_values,
                     )
                 )
             except Exception as exc:
@@ -285,7 +299,11 @@ if show_tsne_compare:
             with cols[i % 2]:
                 st.markdown(f"**{ds['dataset_name']}**")
                 try:
-                    x_tsne, y_tsne, _ = prepare_xy(ds["df"], label_col=ds["label_col"])
+                    x_tsne, y_tsne, _ = prepare_xy(
+                        ds["df"],
+                        label_col=ds["label_col"],
+                        missing_values=missing_values,
+                    )
                     tsne_df = run_tsne(x_tsne, y_tsne)
                     fig, ax = plt.subplots(figsize=(6, 4))
                     scatter = ax.scatter(

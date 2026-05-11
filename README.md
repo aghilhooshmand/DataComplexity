@@ -83,6 +83,7 @@ deactivate
 4. After loading:
    - review **Dataset summary**
    - choose label/target column
+   - choose **missing values** handling for features (after encoding): drop rows, fill zero, impute median/mean (see section below)
 5. Select complexity libraries and metrics:
    - `pycol`, `pymfe`, or both
    - all metrics or selected metrics
@@ -100,10 +101,11 @@ deactivate
    - load dataset
    - choose label column
    - click `Add dataset to comparison list`
-3. Choose libraries and metrics.
-4. Click `Compute comparison metrics`.
-5. Review table and download `datasets_complexity_comparison.csv`.
-6. Select metrics in the chart section to see grouped bar comparison:
+3. Choose **missing values** strategy (applies to all listed datasets for metrics and t-SNE).
+4. Choose libraries and metrics.
+5. Click `Compute comparison metrics`.
+6. Review table and download `datasets_complexity_comparison.csv`.
+7. Select metrics in the chart section to see grouped bar comparison:
    - x-axis: metrics
    - y-axis: values
    - legend: dataset names
@@ -132,6 +134,7 @@ This is useful when:
 - **Metrics**: `all` or comma-separated list
 - **CPU cores**: `--n-jobs`
 - **Label column**: target/label column name
+- **Missing values** (`--missing-values`): `drop_rows`, `fill_zero`, `impute_median` (default), or `impute_mean`
 
 ### Core behavior
 
@@ -155,6 +158,7 @@ python3 parallel_complexity_cli.py \
   --pycol-metrics all \
   --pymfe-metrics all \
   --n-jobs 8 \
+  --missing-values impute_median \
   --output-csv results/one_dataset_parallel.csv
 ```
 
@@ -204,6 +208,21 @@ python3 parallel_complexity_cli.py \
   - `--pycol-metrics`
   - `--pymfe-metrics`
 - If you pass a UCI/OpenML link, the script extracts the dataset ID automatically.
+
+---
+
+## Missing values (features)
+
+`?`, empty strings, and similar tokens are treated as missing **before** numeric encoding.
+
+| Strategy | What it does |
+|----------|----------------|
+| `impute_median` | Fill each feature column with its median; any column still all-missing becomes 0. **Default** (works well for messy tabular data like UCI Adult). |
+| `impute_mean` | Same as median but using the column mean. |
+| `fill_zero` | Fill all remaining missing values with 0. |
+| `drop_rows` | Remove any row that still has a missing value in **any** feature after encoding (strict; can remove many rows). |
+
+Rows with a missing **label** are always dropped. The chosen strategy is stored in result CSVs as `missing_values` where applicable.
 
 ---
 
