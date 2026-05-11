@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 import altair as alt
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -13,6 +14,7 @@ from complexity_core import (
     compute_pymfe_metrics,
     compute_pycol_metrics,
     prepare_xy,
+    run_tsne,
 )
 
 
@@ -267,3 +269,38 @@ if "comparison_result_df" in st.session_state:
                     )
                 )
                 st.altair_chart(chart, use_container_width=True)
+
+st.subheader("t-SNE comparison")
+show_tsne_compare = st.checkbox(
+    "Also compare t-SNE for datasets in comparison list",
+    value=False,
+    key="cmp_show_tsne_compare",
+)
+if show_tsne_compare:
+    if not datasets:
+        st.caption("Add datasets to the comparison list first.")
+    elif st.button("Generate t-SNE grid", key="cmp_generate_tsne_grid"):
+        cols = st.columns(2)
+        for i, ds in enumerate(datasets):
+            with cols[i % 2]:
+                st.markdown(f"**{ds['dataset_name']}**")
+                try:
+                    x_tsne, y_tsne, _ = prepare_xy(ds["df"], label_col=ds["label_col"])
+                    tsne_df = run_tsne(x_tsne, y_tsne)
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    scatter = ax.scatter(
+                        tsne_df["tsne_1"],
+                        tsne_df["tsne_2"],
+                        c=tsne_df["label_code"],
+                        cmap="tab10",
+                        s=14,
+                        alpha=0.85,
+                    )
+                    ax.set_title(f"t-SNE: {ds['dataset_name']}")
+                    ax.set_xlabel("t-SNE 1")
+                    ax.set_ylabel("t-SNE 2")
+                    fig.colorbar(scatter, ax=ax, label="Label code")
+                    st.pyplot(fig, use_container_width=True)
+                    plt.close(fig)
+                except Exception as exc:
+                    st.error(f"Failed for {ds['dataset_name']}: {exc}")
