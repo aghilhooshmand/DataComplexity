@@ -11,8 +11,8 @@ CLI="${SCRIPT_DIR}/parallel_complexity_cli.py"
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
 # ---------------------------------------------------------------------------
-LIBRARY="both"                    # pycol | pymfe | both
-N_JOBS="16"
+LIBRARY="pycol"                    # pycol | pymfe | both
+N_JOBS="70"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 
@@ -23,13 +23,19 @@ PYMFE_METRICS="all"
 # When LIBRARY is "pycol" or "pymfe" only, set METRICS_SINGLE instead (and adjust build_cmd):
 METRICS_SINGLE="all"
 
-# Pass --no-progress to each run? 1=yes, 0=no
+# NO_PROGRESS: whether each CLI run adds flag --no-progress
+#   "0" = show normal CLI progress (phases + tqdm on stderr) when stderr is a terminal
+#   "1" = silent runs (no progress bar / no step lines) — use for logs, cron, or non-TTY pipes
 NO_PROGRESS="0"
 
-# If a dataset fails, continue with the next? 1=yes, 0=stop
-CONTINUE_ON_ERROR="0"
+# CONTINUE_ON_ERROR: after a failed dataset
+#   "0" = stop the whole batch immediately
+#   "1" = print the error and continue with the next dataset
+CONTINUE_ON_ERROR="1"
 
-# Dry run: print commands only (1=yes)
+# DRY_RUN:
+#   "0" = really run parallel_complexity_cli.py for each line
+#   "1" = only print the shell-quoted command that would be run (no execution)
 DRY_RUN="0"
 
 # ---------------------------------------------------------------------------
