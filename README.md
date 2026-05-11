@@ -14,6 +14,7 @@ The app supports:
 - t-SNE visualization
 - CSV export for results
 - parallel CLI execution for one dataset (speedup on multi-core servers)
+- batch manifest + script to run the CLI over many datasets sequentially
 
 ---
 
@@ -248,6 +249,33 @@ python3 parallel_complexity_cli.py \
   - `--pycol-metrics`
   - `--pymfe-metrics`
 - If you pass a UCI/OpenML link, the script extracts the dataset ID automatically.
+
+---
+
+## 4) Batch run (many datasets, one after another)
+
+Use a **manifest** (`batch_manifest.tsv`) where **each row** is one dataset: `source`, `ref` (URL or CSV path), and `label_column`. The helper runs `parallel_complexity_cli.py` **sequentially** for each row (each run still uses `--n-jobs` in parallel internally). All rows can share one **`--output-csv`**; the CLI **upserts** by `dataset_name` so you get one growing table.
+
+- **`batch_manifest.tsv`** — example list (UCI links + `target`). Edit this file to add/remove rows or switch to `csv` + absolute path.
+- **`run_batch_parallel.py`** — reads the manifest and passes shared flags (`--library`, `--n-jobs`, `--missing-values`, metrics, output path).
+- **`run_batch_parallel.sh`** — thin wrapper: `./run_batch_parallel.sh` (same args as the Python script).
+
+**Label column:** For `uci` / `openml` loaded by `parallel_complexity_cli.py`, the merged label column is always named **`target`**, so use `target` in the manifest unless you use **`csv`** with your own file (then set the real column name).
+
+```bash
+cd /path/to/DataComplexity
+./run_batch_parallel.sh \
+  --n-jobs 16 \
+  --missing-values impute_median \
+  --library both \
+  --output-csv results/my_batch.csv
+```
+
+Useful flags:
+
+- `--dry-run` — print commands only
+- `--continue-on-error` — skip failures and continue
+- `--no-progress` — quiet CLI runs (less noise in logs)
 
 ---
 
