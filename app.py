@@ -52,6 +52,9 @@ st.markdown(
 - **`Dataset Comparison`**  
   Add multiple datasets, same **missing-value** options for all listed sets, compute selected complexity metrics, export comparison CSV, grouped bar charts, and optional t-SNE grid.
 
+- **`Compare Uploaded Results`**  
+  Merge pre-computed complexity CSVs (CLI or exports), download a merged table, and compare metrics with grouped bar charts.
+
 - **`Metric Reference`**  
   Browse supported metrics with short descriptions and references.
 
