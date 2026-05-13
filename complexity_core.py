@@ -54,6 +54,92 @@ PYCOL_ALL_METRICS: list[str] = [
     "borderline",
 ]
 
+# Presets for faster batch runs (names must match pycol-complexity methods).
+PYCOL_METRICS_CHEAP: tuple[str, ...] = (
+    "F1",
+    "F2",
+    "F3",
+    "N2",
+    "N3",
+    "C1",
+    "C2",
+)
+
+PYCOL_METRICS_STRONG: tuple[str, ...] = (
+    "F1",
+    "F1v",
+    "F2",
+    "F3",
+    "F4",
+    "N1",
+    "N2",
+    "N3",
+    "N4",
+    "T1",
+    "LSC",
+    "kDN",
+    "C1",
+    "C2",
+    "purity",
+    "borderline",
+    "neighbourhood_separability",
+    "input_noise",
+    "R_value",
+)
+
+PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
+    "cheap": PYCOL_METRICS_CHEAP,
+    "strong": PYCOL_METRICS_STRONG,
+    "all": tuple(PYCOL_ALL_METRICS),
+}
+
+# PyMFE complexity: cheap pool = mostly label / light dimensionality stats (see PyMFE docs:
+# ft_c1, ft_c2 use y; ft_t2 uses N only; ft_t4 uses PCA ratio). Neighbor / graph / overlap
+# measures are grouped as expensive (heuristic; not an official PyMFE cost table).
+PYMFE_METRICS_CHEAP: tuple[str, ...] = (
+    "c1",
+    "c2",
+    "t2",
+    "t3",
+    "t4",
+)
+
+METRIC_COST_HEURISTIC_CAPTION = (
+    "**Cost tiers (heuristic):** *Cheap* ≈ class-balance and lightweight dimensionality "
+    "summaries. *Expensive* ≈ overlap, PCA-heavy, nearest-neighbor, graph, and MST-style "
+    "measures (Lorena survey family). Official PyCol / PyMFE documentation does not give a "
+    "complete time-complexity ranking per metric—pools are for practical batch/UI guidance only."
+)
+
+
+def parse_pycol_metrics_selection(
+    metrics_arg: str, *, custom_metrics: str | None = None
+) -> tuple[list[str], str | None]:
+    """
+    Expand a PyCol metrics argument.
+
+    - ``cheap`` / ``strong`` / ``all`` → built-in lists (``all`` matches ``PYCOL_ALL_METRICS``).
+    - ``custom`` → requires ``custom_metrics`` (comma-separated base names); preset ``custom``.
+    - Otherwise → ``metrics_arg`` treated as a comma-separated custom list (backward compatible); preset ``custom``.
+    """
+    key = metrics_arg.strip().lower()
+    if key == "custom":
+        if not custom_metrics or not str(custom_metrics).strip():
+            raise ValueError(
+                "PyCol preset 'custom' requires --pycol-custom-metrics, "
+                "e.g. --pycol-custom-metrics F1,N1,N3"
+            )
+        names = [m.strip() for m in str(custom_metrics).split(",") if m.strip()]
+        if not names:
+            raise ValueError("--pycol-custom-metrics is empty.")
+        return names, "custom"
+    if key in PYCOL_METRIC_PRESETS:
+        return list(PYCOL_METRIC_PRESETS[key]), key
+    names = [m.strip() for m in metrics_arg.split(",") if m.strip()]
+    if not names:
+        raise ValueError(f"Empty or invalid PyCol metrics argument: {metrics_arg!r}")
+    return names, "custom"
+
 
 def _replace_missing_tokens(series: pd.Series) -> pd.Series:
     """UCI/OpenML often use '?' or empty strings for missing categorical/numeric cells."""
@@ -267,4 +353,28 @@ def get_all_pymfe_complexity_metrics() -> list[str]:
     except Exception:
         pass
     return sorted(PYMFE_COMPLEXITY_METRICS.keys())
+
+
+def get_cheap_expensive_pools(library: str) -> tuple[list[str], list[str]]:
+    """
+    Partition available metrics for ``library`` into cheap vs expensive pools.
+
+    PyCol: cheap = :data:`PYCOL_METRICS_CHEAP`; expensive = remaining names in
+    :data:`PYCOL_ALL_METRICS`.
+
+    PyMFE: cheap = :data:`PYMFE_METRICS_CHEAP` intersected with available features;
+    expensive = all other available complexity features.
+    """
+    all_m = available_metrics_by_library(library)
+    if library == "pycol":
+        cheap_set = set(PYCOL_METRICS_CHEAP)
+        cheap = [m for m in all_m if m in cheap_set]
+        expensive = [m for m in all_m if m not in cheap_set]
+        return cheap, expensive
+    if library == "pymfe":
+        cheap_set = set(PYMFE_METRICS_CHEAP)
+        cheap = [m for m in all_m if m in cheap_set]
+        expensive = [m for m in all_m if m not in cheap_set]
+        return cheap, expensive
+    return [], []
 

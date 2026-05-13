@@ -10,13 +10,13 @@ import streamlit as st
 from complexity_core import (
     MISSING_VALUE_LABELS,
     MISSING_VALUE_STRATEGIES,
-    available_metrics_by_library,
     basic_info_row,
     compute_pymfe_metrics,
     compute_pycol_metrics,
     prepare_xy,
     run_tsne,
 )
+from metric_ui import render_metric_selection_block
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
 
 
@@ -178,7 +178,7 @@ with st.expander("How to use this page", expanded=True):
    - just the dataset id (example: `53`), or
    - a full dataset link (example: `https://archive.ics.uci.edu/dataset/53/iris`).
 3. Select the **label/target column**.
-4. Select one or both libraries (`pycol`, `pymfe`) and metric set (`all` or custom).
+4. Select one or both libraries (`pycol`, `pymfe`). Either **use all metrics**, or choose **cheap / expensive** pools and fine-tune within each pool.
 5. Click **Compute complexity** to get a one-row table and download CSV.
 6. Click **Show t-SNE of dataset** to visualize the dataset in 2D.
 """
@@ -252,20 +252,12 @@ if df is not None:
         default=["pycol", "pymfe"],
     )
 
-    use_all = st.checkbox("Use all metrics", value=True)
-
-    selected_by_library: dict[str, list[str]] = {}
-    for lib in selected_libraries:
-        all_metrics = available_metrics_by_library(lib)
-        if use_all:
-            selected_by_library[lib] = all_metrics
-        else:
-            selected_by_library[lib] = st.multiselect(
-                f"Select {lib} metrics to compute",
-                options=all_metrics,
-                default=all_metrics[: min(8, len(all_metrics))],
-                key=f"metrics_{lib}",
-            )
+    st.subheader("Metrics to compute")
+    selected_by_library = render_metric_selection_block(
+        selected_libraries,
+        key_prefix="calc",
+        use_all_label="Use all metrics",
+    )
 
     with st.expander("Selected metric descriptions and references", expanded=False):
         render_metric_docs_multilib(selected_libraries, selected_by_library)
@@ -275,6 +267,10 @@ if df is not None:
             if not selected_libraries:
                 st.error("Please select at least one complexity library.")
                 st.stop()
+            for lib, mlist in selected_by_library.items():
+                if not mlist:
+                    st.error(f"Select at least one {lib} metric (or enable **Use all metrics**).")
+                    st.stop()
 
             progress = st.progress(0, text="Starting complexity computation...")
             status_box = st.empty()

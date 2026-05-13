@@ -13,10 +13,12 @@ import pandas as pd
 
 from complexity_core import (
     MISSING_VALUE_STRATEGIES,
-    PYCOL_ALL_METRICS,
     get_all_pymfe_complexity_metrics,
+    parse_pycol_metrics_selection,
     prepare_xy,
 )
+
+CLI_VERSION = "1.2.0"
 
 
 def extract_last_int(text: str) -> int | None:
@@ -115,9 +117,10 @@ def pymfe_metric_job(args: tuple[np.ndarray, np.ndarray, str]) -> tuple[str, Any
 
 def parse_metrics_arg(metrics_arg: str, library: str) -> list[str]:
     lib = library.lower()
+    if lib == "pycol":
+        names, _ = parse_pycol_metrics_selection(metrics_arg, custom_metrics=None)
+        return names
     if metrics_arg.strip().lower() == "all":
-        if lib == "pycol":
-            return list(PYCOL_ALL_METRICS)
         if lib == "pymfe":
             return list(get_all_pymfe_complexity_metrics())
         raise ValueError("For library=both, provide --pycol-metrics and --pymfe-metrics.")
@@ -230,12 +233,32 @@ def main() -> None:
     parser.add_argument(
         "--metrics",
         default="all",
-        help="Metrics for single library mode (all or comma-separated).",
+        help=(
+            "Single-library mode. For pycol: cheap | strong | all | custom | or a comma-separated list "
+            "(e.g. F1,N3). If 'custom', also pass --pycol-custom-metrics. For pymfe: all | comma-separated names."
+        ),
     )
     parser.add_argument(
         "--pycol-metrics",
         default="all",
-        help="For library=both: pycol metrics (all or comma-separated).",
+        help=(
+            "When --library both: PyCol side — cheap | strong | all | custom | or comma-separated names. "
+            "If 'custom', also pass --pycol-custom-metrics."
+        ),
+    )
+    parser.add_argument(
+        "--pycol-custom-metrics",
+        default=None,
+        metavar="NAMES",
+        help=(
+            "Comma-separated PyCol metric names when --metrics/--pycol-metrics is exactly 'custom' "
+            "(example: F1,N1,N3,F1v)."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {CLI_VERSION}",
     )
     parser.add_argument(
         "--pymfe-metrics",
@@ -261,12 +284,23 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    run_pycol = args.library in ("pycol", "both")
+    if run_pycol:
+        pycol_arg_chk = (
+            args.metrics.strip().lower() if args.library == "pycol" else args.pycol_metrics.strip().lower()
+        )
+        if pycol_arg_chk == "custom":
+            if not args.pycol_custom_metrics or not str(args.pycol_custom_metrics).strip():
+                parser.error(
+                    "When PyCol metrics are 'custom', pass --pycol-custom-metrics with a comma-separated list "
+                    "(e.g. --pycol-custom-metrics N1,N3,F1,F1v)."
+                )
+
     show_progress = not args.no_progress and sys.stderr.isatty()
 
     def step(msg: str) -> None:
         _progress_sink(show_progress, msg)
 
-    run_pycol = args.library in ("pycol", "both")
     run_pymfe = args.library in ("pymfe", "both")
     total_phases = 2 + int(run_pycol) + int(run_pymfe) + 1  # load, prepare, *metrics, save
     phase_i = 0
@@ -292,6 +326,7 @@ def main() -> None:
     )
     result: dict[str, Any] = {
         "dataset_name": dataset_name,
+        "parallel_cli_version": CLI_VERSION,
         "source": args.source,
         "label_column": args.label_column,
         "missing_values": args.missing_values,
@@ -306,11 +341,11 @@ def main() -> None:
     n_jobs = int(max(1, args.n_jobs))
 
     if run_pycol:
-        pycol_metrics = (
-            parse_metrics_arg(args.metrics, "pycol")
-            if args.library == "pycol"
-            else parse_metrics_arg(args.pycol_metrics, "pycol")
+        pycol_arg = args.metrics if args.library == "pycol" else args.pycol_metrics
+        pycol_metrics, pycol_preset = parse_pycol_metrics_selection(
+            pycol_arg, custom_metrics=args.pycol_custom_metrics
         )
+        result["pycol_metrics_preset"] = pycol_preset or "custom"
         phase(f"PyCol: computing {len(pycol_metrics)} metric(s) in parallel …")
         result.update(
             run_parallel_jobs(

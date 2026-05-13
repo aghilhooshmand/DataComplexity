@@ -16,11 +16,20 @@ N_JOBS="70"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 
+# PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
+#   cheap   — small core: F1,F2,F3,N2,N3,C1,C2
+#   strong  — extended set (see complexity_core.PYCOL_METRICS_STRONG)
+#   all     — full PYCOL_ALL_METRICS
+#   custom  — set PYCOL_CUSTOM_METRICS below (comma-separated), e.g. N1,N3,F1,F1v
+#   (You may also pass a bare comma list as PYCOL_METRICS_ARG without the word custom — then
+#    PYCOL_CUSTOM_METRICS is ignored.)
+PYCOL_METRICS_ARG="cheap"
+PYCOL_CUSTOM_METRICS="N1,N3,F1,F1v"
+
 # When LIBRARY is "both":
-PYCOL_METRICS="all"
 PYMFE_METRICS="all"
 
-# When LIBRARY is "pycol" or "pymfe" only, set METRICS_SINGLE instead (and adjust build_cmd):
+# When LIBRARY is "pymfe" only:
 METRICS_SINGLE="all"
 
 # NO_PROGRESS: whether each CLI run adds flag --no-progress
@@ -63,6 +72,13 @@ DATASETS=(
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "${OUTPUT_CSV}")"
 
+if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
+  if [[ "${PYCOL_METRICS_ARG}" == "custom" ]] && [[ -z "${PYCOL_CUSTOM_METRICS// /}" ]]; then
+    echo "PYCOL_METRICS_ARG is 'custom' but PYCOL_CUSTOM_METRICS is empty. Example: PYCOL_CUSTOM_METRICS='N1,N3,F1,F1v'" >&2
+    exit 1
+  fi
+fi
+
 print_cmd() {
   local src="$1" ref="$2" lbl="$3"
   local -a cmd=(python3 "${CLI}"
@@ -75,7 +91,15 @@ print_cmd() {
     --output-csv "${OUTPUT_CSV}"
   )
   if [[ "${LIBRARY}" == "both" ]]; then
-    cmd+=(--pycol-metrics "${PYCOL_METRICS}" --pymfe-metrics "${PYMFE_METRICS}")
+    cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
+    if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
+      cmd+=(--pycol-custom-metrics "${PYCOL_CUSTOM_METRICS}")
+    fi
+  elif [[ "${LIBRARY}" == "pycol" ]]; then
+    cmd+=(--metrics "${PYCOL_METRICS_ARG}")
+    if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
+      cmd+=(--pycol-custom-metrics "${PYCOL_CUSTOM_METRICS}")
+    fi
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
@@ -98,7 +122,15 @@ run_one() {
     --output-csv "${OUTPUT_CSV}"
   )
   if [[ "${LIBRARY}" == "both" ]]; then
-    cmd+=(--pycol-metrics "${PYCOL_METRICS}" --pymfe-metrics "${PYMFE_METRICS}")
+    cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
+    if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
+      cmd+=(--pycol-custom-metrics "${PYCOL_CUSTOM_METRICS}")
+    fi
+  elif [[ "${LIBRARY}" == "pycol" ]]; then
+    cmd+=(--metrics "${PYCOL_METRICS_ARG}")
+    if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
+      cmd+=(--pycol-custom-metrics "${PYCOL_CUSTOM_METRICS}")
+    fi
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
@@ -110,6 +142,9 @@ run_one() {
 
 total="${#DATASETS[@]}"
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
+if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
+  echo "PyCol metrics: ${PYCOL_METRICS_ARG}" >&2
+fi
 
 i=0
 for entry in "${DATASETS[@]}"; do

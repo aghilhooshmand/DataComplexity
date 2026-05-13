@@ -11,13 +11,13 @@ import streamlit as st
 from complexity_core import (
     MISSING_VALUE_LABELS,
     MISSING_VALUE_STRATEGIES,
-    available_metrics_by_library,
     basic_info_row,
     compute_pymfe_metrics,
     compute_pycol_metrics,
     prepare_xy,
     run_tsne,
 )
+from metric_ui import render_metric_selection_block
 
 
 def extract_last_int(text: str) -> int | None:
@@ -189,20 +189,13 @@ selected_libraries = st.multiselect(
     default=["pycol", "pymfe"],
     key="cmp_libs",
 )
-use_all = st.checkbox("Use all metrics", value=True, key="cmp_use_all")
 
-selected_by_library: dict[str, list[str]] = {}
-for lib in selected_libraries:
-    all_metrics = available_metrics_by_library(lib)
-    if use_all:
-        selected_by_library[lib] = all_metrics
-    else:
-        selected_by_library[lib] = st.multiselect(
-            f"Select {lib} metrics",
-            options=all_metrics,
-            default=all_metrics[: min(8, len(all_metrics))],
-            key=f"cmp_metrics_{lib}",
-        )
+st.subheader("Metrics to compute")
+selected_by_library = render_metric_selection_block(
+    selected_libraries,
+    key_prefix="cmp",
+    use_all_label="Use all metrics",
+)
 
 if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
     if not datasets:
@@ -210,6 +203,10 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
     elif not selected_libraries:
         st.error("Select at least one complexity library.")
     else:
+        for lib, mlist in selected_by_library.items():
+            if not mlist:
+                st.error(f"Select at least one {lib} metric (or enable **Use all metrics**).")
+                st.stop()
         progress = st.progress(0, text="Starting comparison computation...")
         rows: list[dict[str, Any]] = []
         total = len(datasets)
