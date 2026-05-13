@@ -12,7 +12,9 @@ CLI="${SCRIPT_DIR}/parallel_complexity_cli.py"
 # Shared CLI arguments (edit here)
 # ---------------------------------------------------------------------------
 LIBRARY="pycol"                    # pycol | pymfe | both
-N_JOBS="70"
+# Upper bound for multiprocessing; CLI caps to min(this, #metrics, CPU count) so "cheap" runs
+# do not still fork dozens of idle workers (that pattern can freeze or fail after several datasets).
+N_JOBS="16"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 
@@ -152,7 +154,7 @@ for entry in "${DATASETS[@]}"; do
   [[ -z "${entry//[[:space:]]/}" ]] && continue
   [[ "${entry}" =~ ^[[:space:]]*# ]] && continue
 
-  ((++i))
+  i=$((i + 1))
   IFS='|' read -r src ref lbl <<<"${entry}"
   if [[ -z "${src:-}" || -z "${ref:-}" || -z "${lbl:-}" ]]; then
     echo "Skip malformed entry [${i}]: ${entry}" >&2

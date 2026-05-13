@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Callable
 
 import altair as alt
 import matplotlib.pyplot as plt
@@ -108,12 +108,20 @@ def compute_for_dataset(
     selected_by_library: dict[str, list[str]],
     *,
     missing_values: str,
+    pycol_progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
     rec = {"dataset_name": dataset_name}
     rec.update(basic_info_row(df, x, y, label_col, missing_values=missing_values))
     if "pycol" in selected_libraries:
-        rec.update(compute_pycol_metrics(x, y, selected_by_library.get("pycol", [])))
+        rec.update(
+            compute_pycol_metrics(
+                x,
+                y,
+                selected_by_library.get("pycol", []),
+                progress_callback=pycol_progress_callback,
+            )
+        )
     if "pymfe" in selected_libraries:
         rec.update(compute_pymfe_metrics(x, y, selected_by_library.get("pymfe", [])))
     return rec
@@ -212,6 +220,20 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
         total = len(datasets)
         for i, ds in enumerate(datasets, start=1):
             try:
+
+                def _pycol_cb(metric: str, *, _i: int = i, _name: str = ds["dataset_name"]) -> None:
+                    if metric == "__init__":
+                        progress.progress(
+                            min(99, int((_i - 1) / total * 100 + 2)),
+                            text=f"[{_i}/{total}] `{_name}`: PyCol building distances…",
+                        )
+                    else:
+                        progress.progress(
+                            min(99, int((_i - 1) / total * 100 + 5)),
+                            text=f"[{_i}/{total}] `{_name}`: PyCol `{metric}` …",
+                        )
+
+                pcb = _pycol_cb if "pycol" in selected_libraries else None
                 rows.append(
                     compute_for_dataset(
                         dataset_name=ds["dataset_name"],
@@ -220,6 +242,7 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                         selected_libraries=selected_libraries,
                         selected_by_library=selected_by_library,
                         missing_values=missing_values,
+                        pycol_progress_callback=pcb,
                     )
                 )
             except Exception as exc:

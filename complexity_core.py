@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -247,8 +247,23 @@ def prepare_xy(
     return x, y, merged
 
 
-def compute_pycol_metrics(x: np.ndarray, y: np.ndarray, selected_metrics: list[str]) -> dict[str, Any]:
+def compute_pycol_metrics(
+    x: np.ndarray,
+    y: np.ndarray,
+    selected_metrics: list[str],
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    import os
+
+    # PyCol + numpy/scipy can spawn many BLAS threads; cap to reduce frozen UI / oversubscription.
+    for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_k, "1")
+
     from pycol_complexity import complexity as pycol_complexity
+
+    if progress_callback is not None:
+        progress_callback("__init__")
 
     comp = pycol_complexity.Complexity(
         file_type="array",
@@ -258,6 +273,8 @@ def compute_pycol_metrics(x: np.ndarray, y: np.ndarray, selected_metrics: list[s
 
     out: dict[str, Any] = {}
     for metric in selected_metrics:
+        if progress_callback is not None:
+            progress_callback(metric)
         if not hasattr(comp, metric):
             out[f"pycol_{metric}"] = None
             continue
@@ -274,6 +291,11 @@ def compute_pycol_metrics(x: np.ndarray, y: np.ndarray, selected_metrics: list[s
 
 
 def compute_pymfe_metrics(x: np.ndarray, y: np.ndarray, selected_metrics: list[str]) -> dict[str, Any]:
+    import os
+
+    for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_k, "1")
+
     from pymfe.mfe import MFE
 
     use_features = selected_metrics if selected_metrics else None
@@ -298,6 +320,11 @@ def compute_pymfe_metrics(x: np.ndarray, y: np.ndarray, selected_metrics: list[s
 
 
 def run_tsne(x: np.ndarray, y: np.ndarray) -> pd.DataFrame:
+    import os
+
+    for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_k, "1")
+
     if x.shape[0] < 3:
         raise ValueError("Need at least 3 rows for t-SNE.")
     emb = TSNE(n_components=2, random_state=42, init="pca").fit_transform(x)

@@ -253,6 +253,11 @@ if df is not None:
     )
 
     st.subheader("Metrics to compute")
+    st.caption(
+        "PyCol builds **internal pairwise distances once** and reuses them for every selected metric. "
+        "Cost still scales roughly like **O(n²)** in sample count *n*, so a huge table can feel frozen even if you "
+        "only pick a few metrics. PyMFE can also be heavy when many overlap / neighbor features run together."
+    )
     selected_by_library = render_metric_selection_block(
         selected_libraries,
         key_prefix="calc",
@@ -284,10 +289,30 @@ if df is not None:
             progress.progress(45, text="Built dataset summary")
 
             status_box.info(f"Step 3/4: Computing metrics with {', '.join(selected_libraries)}")
-            if "pycol" in selected_libraries:
-                result.update(compute_pycol_metrics(x, y, selected_by_library.get("pycol", [])))
-            if "pymfe" in selected_libraries:
-                result.update(compute_pymfe_metrics(x, y, selected_by_library.get("pymfe", [])))
+            with st.status("Computing complexity…", expanded=True) as st_status:
+                if "pycol" in selected_libraries:
+                    st_status.write(
+                        f"**PyCol:** {len(selected_by_library.get('pycol', []))} metric(s); "
+                        "one model — the first step is often the slowest on large *n*."
+                    )
+
+                    def _pycol_prog(m: str) -> None:
+                        if m == "__init__":
+                            st_status.write("**PyCol:** initializing (distances / preprocessing)…")
+                        else:
+                            st_status.write(f"**PyCol:** computing `{m}` …")
+
+                    result.update(
+                        compute_pycol_metrics(
+                            x,
+                            y,
+                            selected_by_library.get("pycol", []),
+                            progress_callback=_pycol_prog,
+                        )
+                    )
+                if "pymfe" in selected_libraries:
+                    st_status.write("**PyMFE:** fitting and extracting…")
+                    result.update(compute_pymfe_metrics(x, y, selected_by_library.get("pymfe", [])))
             progress.progress(85, text="Computed selected metrics")
 
             status_box.info("Step 4/4: Preparing result table and download")
@@ -310,11 +335,13 @@ if df is not None:
 
     if st.button("Show t-SNE of dataset"):
         try:
-            if "latest_xy" in st.session_state:
-                x, y = st.session_state["latest_xy"]
-            else:
-                x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
-            tsne_df = run_tsne(x, y)
+            with st.status("Computing t-SNE…", expanded=True) as ts_status:
+                ts_status.write("Can take noticeable time on large *n* or many features.")
+                if "latest_xy" in st.session_state:
+                    x, y = st.session_state["latest_xy"]
+                else:
+                    x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
+                tsne_df = run_tsne(x, y)
 
             fig, ax = plt.subplots(figsize=(8, 6))
             scatter = ax.scatter(

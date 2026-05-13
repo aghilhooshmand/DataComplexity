@@ -18,7 +18,7 @@ from complexity_core import (
     prepare_xy,
 )
 
-CLI_VERSION = "1.2.0"
+CLI_VERSION = "1.2.1"
 
 
 def extract_last_int(text: str) -> int | None:
@@ -149,6 +149,15 @@ def run_parallel_jobs(
     )
     inputs = [(x, y, m) for m in metrics]
     total = len(inputs)
+    # Never spawn more pool workers than tasks or CPUs — e.g. cheap=7 metrics with --n-jobs 70
+    # would otherwise fork 70 processes per run and can exhaust resources across a batch.
+    n_workers = max(1, min(int(n_jobs), total, max(1, mp.cpu_count() or 1)))
+    if show_progress and n_workers < int(n_jobs):
+        _progress_sink(
+            True,
+            f"      Capping pool to {n_workers} worker(s) (metrics={total}, "
+            f"--n-jobs={int(n_jobs)}, cpus={mp.cpu_count()}).",
+        )
     use_tqdm = False
     if show_progress:
         try:
@@ -158,7 +167,7 @@ def run_parallel_jobs(
         except ImportError:
             use_tqdm = False
 
-    with mp.Pool(processes=n_jobs) as pool:
+    with mp.Pool(processes=n_workers) as pool:
         if show_progress and use_tqdm:
             out = list(
                 tqdm(
