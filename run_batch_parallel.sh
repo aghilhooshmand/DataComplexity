@@ -14,9 +14,16 @@ CLI="${SCRIPT_DIR}/parallel_complexity_cli.py"
 LIBRARY="pycol"                    # pycol | pymfe | both
 # Upper bound for multiprocessing; CLI caps to min(this, #metrics, CPU count) so "cheap" runs
 # do not still fork dozens of idle workers (that pattern can freeze or fail after several datasets).
+# PyCol on large n (≥5000 rows after cleaning) defaults to sequential metrics in one process (lower RAM);
+# PyMFE still uses this cap for its pool. To force parallel PyCol workers on large n, add
+# --pycol-parallel-metrics to the python command in print_cmd/run_one below.
 N_JOBS="16"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
+
+# If > 0, each CLI run subsamples at most this many rows for PyCol/PyMFE (much faster on large n; approximate).
+# 0 = use every row after cleaning (full-data metrics; needs enough RAM for PyCol on large n).
+COMPLEXITY_MAX_ROWS="0"
 
 # PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
 #   cheap   — small core: F1,F2,F3,N2,N3,C1,C2
@@ -58,7 +65,6 @@ DRY_RUN="0"
 # Use | as separator (do not use | inside URLs).
 # ---------------------------------------------------------------------------
 DATASETS=(
-  "uci|https://archive.ics.uci.edu/dataset/186/wine+quality|target"
   "uci|https://archive.ics.uci.edu/dataset/2/adult|target"
   "uci|https://archive.ics.uci.edu/dataset/222/bank+marketing|target"
   "uci|https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping|target"
@@ -92,6 +98,9 @@ print_cmd() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
   )
+  if [[ -n "${COMPLEXITY_MAX_ROWS:-}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
+    cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
+  fi
   if [[ "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
     if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
@@ -123,6 +132,9 @@ run_one() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
   )
+  if [[ -n "${COMPLEXITY_MAX_ROWS:-}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
+    cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
+  fi
   if [[ "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
     if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then

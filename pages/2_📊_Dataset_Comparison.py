@@ -16,6 +16,7 @@ from complexity_core import (
     compute_pycol_metrics,
     prepare_xy,
     run_tsne,
+    subsample_xy_for_complexity,
 )
 from metric_ui import render_metric_selection_block
 
@@ -108,22 +109,30 @@ def compute_for_dataset(
     selected_by_library: dict[str, list[str]],
     *,
     missing_values: str,
+    complexity_max_rows: int = 0,
     pycol_progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
     rec = {"dataset_name": dataset_name}
     rec.update(basic_info_row(df, x, y, label_col, missing_values=missing_values))
+    xc, yc, cmeta = subsample_xy_for_complexity(x, y, int(complexity_max_rows))
+    if int(complexity_max_rows) > 0:
+        rec["complexity_max_rows"] = int(complexity_max_rows)
+    if cmeta.get("complexity_subsampled"):
+        rec["complexity_subsampled"] = True
+        rec["n_rows_complexity_input"] = int(cmeta["n_rows_complexity_input"])
+        rec["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
     if "pycol" in selected_libraries:
         rec.update(
             compute_pycol_metrics(
-                x,
-                y,
+                xc,
+                yc,
                 selected_by_library.get("pycol", []),
                 progress_callback=pycol_progress_callback,
             )
         )
     if "pymfe" in selected_libraries:
-        rec.update(compute_pymfe_metrics(x, y, selected_by_library.get("pymfe", [])))
+        rec.update(compute_pymfe_metrics(xc, yc, selected_by_library.get("pymfe", [])))
     return rec
 
 
@@ -191,6 +200,16 @@ missing_values = st.selectbox(
     key="cmp_missing_values",
 )
 
+cmp_complexity_max_rows = st.number_input(
+    "Max rows for complexity (per dataset, PyCol / PyMFE)",
+    min_value=0,
+    max_value=2_000_000,
+    value=0,
+    step=100,
+    help="Same as Calculator: **0** = all rows; e.g. **3000** speeds large sets (approximate metrics on a random subset).",
+    key="cmp_complexity_max_rows",
+)
+
 selected_libraries = st.multiselect(
     "Complexity libraries",
     options=["pycol", "pymfe"],
@@ -242,6 +261,7 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                         selected_libraries=selected_libraries,
                         selected_by_library=selected_by_library,
                         missing_values=missing_values,
+                        complexity_max_rows=int(cmp_complexity_max_rows),
                         pycol_progress_callback=pcb,
                     )
                 )

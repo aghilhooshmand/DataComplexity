@@ -247,6 +247,37 @@ def prepare_xy(
     return x, y, merged
 
 
+def subsample_xy_for_complexity(
+    x: np.ndarray,
+    y: np.ndarray,
+    max_rows: int,
+    *,
+    random_state: int = 0,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """
+    If ``max_rows > 0`` and ``n > max_rows``, take a fixed-seed random subset of rows (no replacement)
+    for PyCol / PyMFE / pool workers. Complexity values are then **approximate** for exploratory speed.
+
+    PyCol cost is dominated by ~pairwise structure in *n*; subsampling is the practical way to cap work.
+    """
+    n = int(x.shape[0])
+    meta: dict[str, Any] = {
+        "complexity_max_rows": int(max_rows) if max_rows > 0 else None,
+        "complexity_subsampled": False,
+        "n_rows_complexity_input": n,
+        "n_rows_complexity_used": n,
+    }
+    if max_rows <= 0 or n <= max_rows:
+        return x, y, meta
+    rng = np.random.default_rng(int(random_state))
+    pick = int(min(max_rows, n))
+    idx = rng.choice(n, size=pick, replace=False)
+    idx.sort()
+    meta["complexity_subsampled"] = True
+    meta["n_rows_complexity_used"] = pick
+    return x[idx], y[idx], meta
+
+
 def compute_pycol_metrics(
     x: np.ndarray,
     y: np.ndarray,

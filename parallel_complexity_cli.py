@@ -13,12 +13,19 @@ import pandas as pd
 
 from complexity_core import (
     MISSING_VALUE_STRATEGIES,
+    compute_pycol_metrics,
     get_all_pymfe_complexity_metrics,
     parse_pycol_metrics_selection,
     prepare_xy,
+    subsample_xy_for_complexity,
 )
 
-CLI_VERSION = "1.2.1"
+CLI_VERSION = "1.5.0"
+
+# Above this row count (after cleaning / subsampling), PyCol defaults to **sequential** metrics in one
+# process via a single Complexity object — much lower peak RAM than a Process pool (each worker
+# otherwise pickles X,y and builds its own full Complexity / distance structure).
+PYCOL_SEQUENTIAL_ROW_THRESHOLD = 5_000
 
 
 def extract_last_int(text: str) -> int | None:
@@ -287,6 +294,27 @@ def main() -> None:
     )
     parser.add_argument("--output-csv", default="parallel_dataset_complexity.csv")
     parser.add_argument(
+        "--complexity-max-rows",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "If > 0 and n rows after encoding exceeds N, randomly subsample N rows (fixed seed) for "
+            "PyCol/PyMFE only. Speeds large datasets; metrics are approximate on the subset. 0 = use all rows."
+        ),
+    )
+    parser.add_argument(
+        "--pycol-parallel-metrics",
+        action="store_true",
+        help=(
+            "Use a process pool for PyCol (one worker per metric). Faster on small n, but on large n "
+            "each worker duplicates the design matrix and can build its own distance structure — very high "
+            f"peak RAM. Default: sequential PyCol in one process when n≥{PYCOL_SEQUENTIAL_ROW_THRESHOLD} "
+            "(single Complexity instance, lower memory; still uses all rows unless you set "
+            "--complexity-max-rows)."
+        ),
+    )
+    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable progress bar and step messages (for logs/CI).",
@@ -333,6 +361,13 @@ def main() -> None:
         f"      Ready: n_rows={x.shape[0]}  n_features={x.shape[1]}  n_classes={int(np.unique(y).size)}  "
         f"missing_values={args.missing_values!r}  n_jobs={max(1, args.n_jobs)}"
     )
+    x_met, y_met, cmeta = subsample_xy_for_complexity(x, y, int(args.complexity_max_rows))
+    if cmeta.get("complexity_subsampled"):
+        step(
+            f"      Complexity subsample: using {cmeta['n_rows_complexity_used']}/"
+            f"{cmeta['n_rows_complexity_input']} rows (--complexity-max-rows)"
+        )
+
     result: dict[str, Any] = {
         "dataset_name": dataset_name,
         "parallel_cli_version": CLI_VERSION,
@@ -346,6 +381,12 @@ def main() -> None:
         "n_classes": int(np.unique(y).size),
         "n_jobs": int(max(1, args.n_jobs)),
     }
+    if int(args.complexity_max_rows) > 0:
+        result["complexity_max_rows"] = int(args.complexity_max_rows)
+    if cmeta.get("complexity_subsampled"):
+        result["complexity_subsampled"] = True
+        result["n_rows_complexity_input"] = int(cmeta["n_rows_complexity_input"])
+        result["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
 
     n_jobs = int(max(1, args.n_jobs))
 
@@ -355,18 +396,38 @@ def main() -> None:
             pycol_arg, custom_metrics=args.pycol_custom_metrics
         )
         result["pycol_metrics_preset"] = pycol_preset or "custom"
-        phase(f"PyCol: computing {len(pycol_metrics)} metric(s) in parallel …")
-        result.update(
-            run_parallel_jobs(
-                "pycol",
-                x,
-                y,
-                pycol_metrics,
-                n_jobs,
-                show_progress=show_progress,
-                desc="pycol",
+        n_pycol = int(x_met.shape[0])
+        use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
+        if use_sequential_pycol:
+            phase(
+                f"PyCol: computing {len(pycol_metrics)} metric(s) sequentially (single Complexity, n={n_pycol}) …"
             )
-        )
+            if show_progress:
+
+                def _pycol_prog(m: str) -> None:
+                    if m == "__init__":
+                        _progress_sink(True, "      PyCol: initializing Complexity (distances) …")
+                    else:
+                        _progress_sink(True, f"      PyCol: `{m}` …")
+
+                prog_cb = _pycol_prog
+            else:
+                prog_cb = None
+            result.update(compute_pycol_metrics(x_met, y_met, pycol_metrics, progress_callback=prog_cb))
+            result["pycol_sequential_large_n"] = True
+        else:
+            phase(f"PyCol: computing {len(pycol_metrics)} metric(s) in parallel …")
+            result.update(
+                run_parallel_jobs(
+                    "pycol",
+                    x_met,
+                    y_met,
+                    pycol_metrics,
+                    n_jobs,
+                    show_progress=show_progress,
+                    desc="pycol",
+                )
+            )
         step("      PyCol done.")
 
     if run_pymfe:
@@ -379,8 +440,8 @@ def main() -> None:
         result.update(
             run_parallel_jobs(
                 "pymfe",
-                x,
-                y,
+                x_met,
+                y_met,
                 pymfe_metrics,
                 n_jobs,
                 show_progress=show_progress,

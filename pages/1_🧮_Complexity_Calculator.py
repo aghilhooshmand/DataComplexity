@@ -15,6 +15,7 @@ from complexity_core import (
     compute_pycol_metrics,
     prepare_xy,
     run_tsne,
+    subsample_xy_for_complexity,
 )
 from metric_ui import render_metric_selection_block
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
@@ -209,6 +210,19 @@ if df is not None:
         format_func=lambda k: MISSING_VALUE_LABELS.get(str(k), str(k)),
         help="Applies after turning categories into numbers. Rows with missing labels are always dropped.",
     )
+    complexity_max_rows = st.number_input(
+        "Max rows for complexity (PyCol / PyMFE)",
+        min_value=0,
+        max_value=2_000_000,
+        value=0,
+        step=100,
+        help=(
+            "After cleaning, if more than this many rows remain, a **random subsample** (fixed seed) is used only "
+            "for complexity metrics. **0** = use every row. For ~6k rows (e.g. Wine), try **2000–3500** for much "
+            "faster runs (values are approximate on the subset). t-SNE still uses **all** cleaned rows."
+        ),
+        key="calc_complexity_max_rows",
+    )
     st.subheader("Dataset summary")
     summary_lines: list[str] = []
     summary_lines.append(f"- **Source:** {dataset_meta.get('source', source)}")
@@ -286,6 +300,13 @@ if df is not None:
 
             status_box.info("Step 2/4: Building dataset summary")
             result = basic_info_row(df, x, y, label_col, missing_values=missing_values)
+            xc, yc, cmeta = subsample_xy_for_complexity(x, y, int(complexity_max_rows))
+            if int(complexity_max_rows) > 0:
+                result["complexity_max_rows"] = int(complexity_max_rows)
+            if cmeta.get("complexity_subsampled"):
+                result["complexity_subsampled"] = True
+                result["n_rows_complexity_input"] = int(cmeta["n_rows_complexity_input"])
+                result["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
             progress.progress(45, text="Built dataset summary")
 
             status_box.info(f"Step 3/4: Computing metrics with {', '.join(selected_libraries)}")
@@ -293,7 +314,7 @@ if df is not None:
                 if "pycol" in selected_libraries:
                     st_status.write(
                         f"**PyCol:** {len(selected_by_library.get('pycol', []))} metric(s); "
-                        "one model — the first step is often the slowest on large *n*."
+                        f"rows for PyCol: **{yc.shape[0]}** (full cleaned: {y.shape[0]})."
                     )
 
                     def _pycol_prog(m: str) -> None:
@@ -304,15 +325,15 @@ if df is not None:
 
                     result.update(
                         compute_pycol_metrics(
-                            x,
-                            y,
+                            xc,
+                            yc,
                             selected_by_library.get("pycol", []),
                             progress_callback=_pycol_prog,
                         )
                     )
                 if "pymfe" in selected_libraries:
                     st_status.write("**PyMFE:** fitting and extracting…")
-                    result.update(compute_pymfe_metrics(x, y, selected_by_library.get("pymfe", [])))
+                    result.update(compute_pymfe_metrics(xc, yc, selected_by_library.get("pymfe", [])))
             progress.progress(85, text="Computed selected metrics")
 
             status_box.info("Step 4/4: Preparing result table and download")
