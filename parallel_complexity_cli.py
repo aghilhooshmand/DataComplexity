@@ -21,7 +21,7 @@ from complexity_core import (
 )
 
 CLI_VERSION = "1.5.0"
-
+#
 # Above this row count (after cleaning / subsampling), PyCol defaults to **sequential** metrics in one
 # process via a single Complexity object — much lower peak RAM than a Process pool (each worker
 # otherwise pickles X,y and builds its own full Complexity / distance structure).
