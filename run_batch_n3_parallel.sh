@@ -34,10 +34,10 @@ IMB="0"
 INST_LEVEL="0"
 
 # CONTINUE_ON_ERROR: "0" = stop on first failure; "1" = continue
-CONTINUE_ON_ERROR="1"
+CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 
-# DRY_RUN: "1" = print commands only
-DRY_RUN="0"
+# DRY_RUN: "1" = print commands only (override: DRY_RUN=1 ./run_batch_n3_parallel.sh)
+DRY_RUN="${DRY_RUN:-0}"
 
 # ---------------------------------------------------------------------------
 # Dataset list (same format as run_batch_parallel.sh)
