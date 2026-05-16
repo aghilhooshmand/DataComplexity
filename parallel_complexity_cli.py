@@ -250,7 +250,7 @@ def main() -> None:
         "--metrics",
         default="all",
         help=(
-            "Single-library mode. For pycol: cheap | strong | all | custom | or a comma-separated list "
+            "Single-library mode. For pycol: cheap_minimal | cheap | expensive_core | expensive | all | custom | or a comma-separated list "
             "(e.g. F1,N3). If 'custom', also pass --pycol-custom-metrics. For pymfe: all | comma-separated names."
         ),
     )
@@ -258,7 +258,7 @@ def main() -> None:
         "--pycol-metrics",
         default="all",
         help=(
-            "When --library both: PyCol side — cheap | strong | all | custom | or comma-separated names. "
+            "When --library both: PyCol side — cheap_minimal | cheap | expensive_core | expensive | all | custom | or comma-separated names. "
             "If 'custom', also pass --pycol-custom-metrics."
         ),
     )

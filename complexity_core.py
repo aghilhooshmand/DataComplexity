@@ -54,7 +54,13 @@ PYCOL_ALL_METRICS: list[str] = [
     "borderline",
 ]
 
-# Presets for faster batch runs (names must match pycol-complexity methods).
+# Presets for batch runs (names must match pycol-complexity methods).
+PYCOL_METRICS_CHEAP_MINIMAL: tuple[str, ...] = (
+    "F1",
+    "F2",
+    "F3",
+)
+
 PYCOL_METRICS_CHEAP: tuple[str, ...] = (
     "F1",
     "F2",
@@ -65,31 +71,27 @@ PYCOL_METRICS_CHEAP: tuple[str, ...] = (
     "C2",
 )
 
-PYCOL_METRICS_STRONG: tuple[str, ...] = (
-    "F1",
-    "F1v",
-    "F2",
-    "F3",
-    "F4",
+PYCOL_METRICS_EXPENSIVE_CORE: tuple[str, ...] = (
     "N1",
-    "N2",
-    "N3",
     "N4",
     "T1",
     "LSC",
     "kDN",
-    "C1",
-    "C2",
-    "purity",
     "borderline",
-    "neighbourhood_separability",
-    "input_noise",
-    "R_value",
+    "F1v",
+    "F4",
+)
+
+_cheap_set = frozenset(PYCOL_METRICS_CHEAP)
+PYCOL_METRICS_EXPENSIVE: tuple[str, ...] = tuple(
+    m for m in PYCOL_ALL_METRICS if m not in _cheap_set
 )
 
 PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
+    "cheap_minimal": PYCOL_METRICS_CHEAP_MINIMAL,
     "cheap": PYCOL_METRICS_CHEAP,
-    "strong": PYCOL_METRICS_STRONG,
+    "expensive_core": PYCOL_METRICS_EXPENSIVE_CORE,
+    "expensive": PYCOL_METRICS_EXPENSIVE,
     "all": tuple(PYCOL_ALL_METRICS),
 }
 
@@ -105,10 +107,10 @@ PYMFE_METRICS_CHEAP: tuple[str, ...] = (
 )
 
 METRIC_COST_HEURISTIC_CAPTION = (
-    "**Cost tiers (heuristic):** *Cheap* ≈ class-balance and lightweight dimensionality "
-    "summaries. *Expensive* ≈ overlap, PCA-heavy, nearest-neighbor, graph, and MST-style "
-    "measures (Lorena survey family). Official PyCol / PyMFE documentation does not give a "
-    "complete time-complexity ranking per metric—pools are for practical batch/UI guidance only."
+    "**Cost tiers (heuristic):** *cheap_minimal* / *cheap* = feature overlap and light neighbor "
+    "measures (F1–F3; optional N2,N3,C1,C2). *expensive_core* = heavier neighbor/geometry subset. "
+    "*expensive* = all PyCol metrics not in *cheap*. Official PyCol docs do not give a full "
+    "time-complexity ranking per metric—presets are for practical batch/UI guidance only."
 )
 
 
@@ -118,7 +120,7 @@ def parse_pycol_metrics_selection(
     """
     Expand a PyCol metrics argument.
 
-    - ``cheap`` / ``strong`` / ``all`` → built-in lists (``all`` matches ``PYCOL_ALL_METRICS``).
+    - ``cheap_minimal`` / ``cheap`` / ``expensive_core`` / ``expensive`` / ``all`` → built-in lists.
     - ``custom`` → requires ``custom_metrics`` (comma-separated base names); preset ``custom``.
     - Otherwise → ``metrics_arg`` treated as a comma-separated custom list (backward compatible); preset ``custom``.
     """
@@ -417,8 +419,7 @@ def get_cheap_expensive_pools(library: str) -> tuple[list[str], list[str]]:
     """
     Partition available metrics for ``library`` into cheap vs expensive pools.
 
-    PyCol: cheap = :data:`PYCOL_METRICS_CHEAP`; expensive = remaining names in
-    :data:`PYCOL_ALL_METRICS`.
+    PyCol: cheap = :data:`PYCOL_METRICS_CHEAP`; expensive = :data:`PYCOL_METRICS_EXPENSIVE`.
 
     PyMFE: cheap = :data:`PYMFE_METRICS_CHEAP` intersected with available features;
     expensive = all other available complexity features.

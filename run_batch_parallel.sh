@@ -26,14 +26,16 @@ OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 COMPLEXITY_MAX_ROWS="0"
 
 # PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
-#   cheap   — small core: F1,F2,F3,N2,N3,C1,C2
-#   strong  — extended set (see complexity_core.PYCOL_METRICS_STRONG)
-#   all     — full PYCOL_ALL_METRICS
-#   custom  — set PYCOL_CUSTOM_METRICS below (comma-separated), e.g. N1,N3,F1,F1v
+#   cheap_minimal — F1,F2,F3
+#   cheap         — F1,F2,F3,N2,N3,C1,C2
+#   expensive_core — N1,N4,T1,LSC,kDN,borderline,F1v,F4
+#   expensive     — all metrics except cheap (7 metrics)
+#   all           — full PYCOL_ALL_METRICS
+#   custom        — set PYCOL_CUSTOM_METRICS below (comma-separated), e.g. N1,N3,F1,F1v
 #   (You may also pass a bare comma list as PYCOL_METRICS_ARG without the word custom — then
 #    PYCOL_CUSTOM_METRICS is ignored.)
-PYCOL_METRICS_ARG="cheap"
-PYCOL_CUSTOM_METRICS="N1,N3,F1,F1v"
+PYCOL_METRICS_ARG="cheap_minimal"
+PYCOL_CUSTOM_METRICS="F1,F2,F3"  # used only when PYCOL_METRICS_ARG="custom"
 
 # When LIBRARY is "both":
 PYMFE_METRICS="all"
