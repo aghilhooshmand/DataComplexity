@@ -7,6 +7,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI="${SCRIPT_DIR}/parallel_complexity_cli.py"
+if [[ -x "${SCRIPT_DIR}/.venv/bin/python" ]]; then
+  PYTHON="${SCRIPT_DIR}/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
 
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
@@ -56,12 +61,13 @@ NO_PROGRESS="0"
 # CONTINUE_ON_ERROR: after a failed dataset
 #   "0" = stop the whole batch immediately
 #   "1" = print the error and continue with the next dataset
-CONTINUE_ON_ERROR="1"
+# Override on the command line, e.g. CONTINUE_ON_ERROR=0 DRY_RUN=1 ./run_batch_parallel.sh
+CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 
 # DRY_RUN:
 #   "0" = really run parallel_complexity_cli.py for each line
 #   "1" = only print the shell-quoted command that would be run (no execution)
-DRY_RUN="0"
+DRY_RUN="${DRY_RUN:-0}"
 
 # ---------------------------------------------------------------------------
 # Dataset list: one entry per line inside the array.
@@ -112,7 +118,7 @@ append_pycol_dist_arg() {
 
 print_cmd() {
   local src="$1" ref="$2" lbl="$3"
-  local -a cmd=(python3 "${CLI}"
+  local -a cmd=("${PYTHON}" "${CLI}"
     --source "${src}"
     --ref "${ref}"
     --label-column "${lbl}"
@@ -147,7 +153,7 @@ print_cmd() {
 
 run_one() {
   local src="$1" ref="$2" lbl="$3"
-  local -a cmd=(python3 "${CLI}"
+  local -a cmd=("${PYTHON}" "${CLI}"
     --source "${src}"
     --ref "${ref}"
     --label-column "${lbl}"
