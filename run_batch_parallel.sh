@@ -26,7 +26,7 @@ OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 COMPLEXITY_MAX_ROWS="0"
 
 # PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
-#   cheap_minimal — F1,F2,F3
+#   cheap_minimal — F1,F2,F3,F4,F1v,input_noise,purity (no n×n distance matrix)
 #   cheap         — F1,F2,F3,N2,N3,C1,C2
 #   expensive_core — N1,N4,T1,LSC,kDN,borderline,F1v,F4
 #   expensive     — all metrics except cheap (7 metrics)
@@ -35,7 +35,12 @@ COMPLEXITY_MAX_ROWS="0"
 #   (You may also pass a bare comma list as PYCOL_METRICS_ARG without the word custom — then
 #    PYCOL_CUSTOM_METRICS is ignored.)
 PYCOL_METRICS_ARG="cheap_minimal"
-PYCOL_CUSTOM_METRICS="F1,F2,F3"  # used only when PYCOL_METRICS_ARG="custom"
+PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity"  # used only when PYCOL_METRICS_ARG="custom"
+
+# PyCol n×n distance matrix (only when LIBRARY is pycol or both):
+#   skip  — no HEOM matrix; only metrics that do not need pairwise distances (default)
+#   build — compute distance-based metrics when they are in the selected set
+PYCOL_DISTANCE_MATRIX="skip"
 
 # When LIBRARY is "both":
 PYMFE_METRICS="all"
@@ -67,6 +72,8 @@ DRY_RUN="0"
 # Use | as separator (do not use | inside URLs).
 # ---------------------------------------------------------------------------
 DATASETS=(
+  "uci|https://archive.ics.uci.edu/dataset/186/wine+quality|target"
+  "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
   "uci|https://archive.ics.uci.edu/dataset/2/adult|target"
   "uci|https://archive.ics.uci.edu/dataset/222/bank+marketing|target"
   "uci|https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping|target"
@@ -87,7 +94,21 @@ if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     echo "PYCOL_METRICS_ARG is 'custom' but PYCOL_CUSTOM_METRICS is empty. Example: PYCOL_CUSTOM_METRICS='N1,N3,F1,F1v'" >&2
     exit 1
   fi
+  case "${PYCOL_DISTANCE_MATRIX}" in
+    skip|SKIP) PYCOL_DISTANCE_MATRIX="skip" ;;
+    build|BUILD) PYCOL_DISTANCE_MATRIX="build" ;;
+    *)
+      echo "PYCOL_DISTANCE_MATRIX must be skip or build; got: ${PYCOL_DISTANCE_MATRIX}" >&2
+      exit 1
+      ;;
+  esac
 fi
+
+append_pycol_dist_arg() {
+  if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
+    cmd+=(--pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}")
+  fi
+}
 
 print_cmd() {
   local src="$1" ref="$2" lbl="$3"
@@ -116,6 +137,7 @@ print_cmd() {
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
+  append_pycol_dist_arg
   if [[ "${NO_PROGRESS}" == "1" ]]; then
     cmd+=(--no-progress)
   fi
@@ -150,6 +172,7 @@ run_one() {
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
+  append_pycol_dist_arg
   if [[ "${NO_PROGRESS}" == "1" ]]; then
     cmd+=(--no-progress)
   fi
@@ -159,7 +182,7 @@ run_one() {
 total="${#DATASETS[@]}"
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
-  echo "PyCol metrics: ${PYCOL_METRICS_ARG}" >&2
+  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}" >&2
 fi
 
 i=0

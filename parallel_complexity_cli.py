@@ -13,14 +13,18 @@ import pandas as pd
 
 from complexity_core import (
     MISSING_VALUE_STRATEGIES,
+    PYCOL_METRICS_NO_DISTANCE,
+    build_pycol_complexity,
     compute_pycol_metrics,
     get_all_pymfe_complexity_metrics,
     parse_pycol_metrics_selection,
+    partition_pycol_metrics,
+    resolve_pycol_skip_distance_matrix,
     prepare_xy,
     subsample_xy_for_complexity,
 )
 
-CLI_VERSION = "1.5.0"
+CLI_VERSION = "1.6.0"
 #
 # Above this row count (after cleaning / subsampling), PyCol defaults to **sequential** metrics in one
 # process via a single Complexity object — much lower peak RAM than a Process pool (each worker
@@ -81,14 +85,13 @@ def load_dataset(source: str, ref: str) -> tuple[pd.DataFrame, str]:
 
 def pycol_metric_job(args: tuple[np.ndarray, np.ndarray, str]) -> tuple[str, Any]:
     x, y, metric = args
-    from pycol_complexity import complexity as pycol_complexity
 
     key = f"pycol_{metric}"
     try:
-        comp = pycol_complexity.Complexity(
-            file_type="array",
-            dataset={"X": np.asarray(x, dtype=float), "y": np.asarray(y)},
-            distance_func="default",
+        comp = build_pycol_complexity(
+            x,
+            y,
+            skip_distance_matrix=metric in PYCOL_METRICS_NO_DISTANCE,
         )
         if not hasattr(comp, metric):
             return key, None
@@ -315,6 +318,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--pycol-distance-matrix",
+        choices=("skip", "build"),
+        default="skip",
+        help=(
+            "PyCol n×n HEOM distance matrix (default: skip). skip = only metrics without "
+            "pairwise distances (F1–F4, F1v, input_noise, purity); other selected metrics "
+            "are omitted. build = compute distance-based metrics when selected."
+        ),
+    )
+    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable progress bar and step messages (for logs/CI).",
@@ -322,6 +335,9 @@ def main() -> None:
     args = parser.parse_args()
 
     run_pycol = args.library in ("pycol", "both")
+    pycol_skip_dist = False
+    if run_pycol:
+        pycol_skip_dist = resolve_pycol_skip_distance_matrix(args.pycol_distance_matrix)
     if run_pycol:
         pycol_arg_chk = (
             args.metrics.strip().lower() if args.library == "pycol" else args.pycol_metrics.strip().lower()
@@ -396,33 +412,53 @@ def main() -> None:
             pycol_arg, custom_metrics=args.pycol_custom_metrics
         )
         result["pycol_metrics_preset"] = pycol_preset or "custom"
+        result["pycol_skip_distance_matrix"] = pycol_skip_dist
+        no_dist_part, need_dist_omitted = partition_pycol_metrics(pycol_metrics)
+        if pycol_skip_dist:
+            pycol_metrics_run = no_dist_part
+            if need_dist_omitted and show_progress:
+                step(
+                    "      PyCol: skipping n×n matrix — omitting: "
+                    + ", ".join(need_dist_omitted)
+                )
+        else:
+            pycol_metrics_run = pycol_metrics
         n_pycol = int(x_met.shape[0])
         use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
         if use_sequential_pycol:
             phase(
-                f"PyCol: computing {len(pycol_metrics)} metric(s) sequentially (single Complexity, n={n_pycol}) …"
+                f"PyCol: computing {len(pycol_metrics_run)} metric(s) sequentially (single Complexity, n={n_pycol}) …"
             )
             if show_progress:
-
                 def _pycol_prog(m: str) -> None:
                     if m == "__init__":
-                        _progress_sink(True, "      PyCol: initializing Complexity (distances) …")
+                        _progress_sink(True, "      PyCol: initializing (no distance matrix) …")
+                    elif m == "__init_dist__":
+                        _progress_sink(True, "      PyCol: initializing (distance matrix) …")
                     else:
                         _progress_sink(True, f"      PyCol: `{m}` …")
 
                 prog_cb = _pycol_prog
             else:
                 prog_cb = None
-            result.update(compute_pycol_metrics(x_met, y_met, pycol_metrics, progress_callback=prog_cb))
+            result.update(
+                compute_pycol_metrics(
+                    x_met,
+                    y_met,
+                    pycol_metrics_run,
+                    skip_distance_matrix=pycol_skip_dist,
+                    progress_callback=prog_cb,
+                )
+            )
             result["pycol_sequential_large_n"] = True
         else:
-            phase(f"PyCol: computing {len(pycol_metrics)} metric(s) in parallel …")
+            phase(f"PyCol: computing {len(pycol_metrics_run)} metric(s) in parallel …")
             result.update(
                 run_parallel_jobs(
                     "pycol",
                     x_met,
                     y_met,
-                    pycol_metrics,
+                    pycol_metrics_run,
                     n_jobs,
                     show_progress=show_progress,
                     desc="pycol",

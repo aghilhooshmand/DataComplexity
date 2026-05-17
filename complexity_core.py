@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import numpy as np
 import pandas as pd
@@ -54,12 +54,21 @@ PYCOL_ALL_METRICS: list[str] = [
     "borderline",
 ]
 
-# Presets for batch runs (names must match pycol-complexity methods).
-PYCOL_METRICS_CHEAP_MINIMAL: tuple[str, ...] = (
-    "F1",
-    "F2",
-    "F3",
+# PyCol metrics that use only X/y (class stats, boxes, grids) — no pairwise sample distances.
+PYCOL_METRICS_NO_DISTANCE: frozenset[str, ...] = frozenset(
+    {
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F1v",
+        "input_noise",
+        "purity",
+    }
 )
+
+# Presets for batch runs (names must match pycol-complexity methods).
+PYCOL_METRICS_CHEAP_MINIMAL: tuple[str, ...] = tuple(PYCOL_METRICS_NO_DISTANCE)
 
 PYCOL_METRICS_CHEAP: tuple[str, ...] = (
     "F1",
@@ -78,8 +87,6 @@ PYCOL_METRICS_EXPENSIVE_CORE: tuple[str, ...] = (
     "LSC",
     "kDN",
     "borderline",
-    "F1v",
-    "F4",
 )
 
 _cheap_set = frozenset(PYCOL_METRICS_CHEAP)
@@ -107,11 +114,42 @@ PYMFE_METRICS_CHEAP: tuple[str, ...] = (
 )
 
 METRIC_COST_HEURISTIC_CAPTION = (
-    "**Cost tiers (heuristic):** *cheap_minimal* / *cheap* = feature overlap and light neighbor "
-    "measures (F1–F3; optional N2,N3,C1,C2). *expensive_core* = heavier neighbor/geometry subset. "
-    "*expensive* = all PyCol metrics not in *cheap*. Official PyCol docs do not give a full "
-    "time-complexity ranking per metric—presets are for practical batch/UI guidance only."
+    "**Cost tiers (heuristic):** *cheap_minimal* = overlap / feature-space metrics without a "
+    "pairwise distance matrix (F1–F4, F1v, input_noise, purity). *cheap* adds N2,N3,C1,C2 "
+    "(needs distances). *expensive_core* = heavier neighbor/geometry subset. *expensive* = all "
+    "PyCol metrics not in *cheap*. Presets are for practical batch/UI guidance only."
 )
+
+
+def partition_pycol_metrics(metrics: list[str]) -> tuple[list[str], list[str]]:
+    """Split metrics into (no pairwise distance matrix, needs distance matrix), preserving order."""
+    no_dist = [m for m in metrics if m in PYCOL_METRICS_NO_DISTANCE]
+    need_dist = [m for m in metrics if m not in PYCOL_METRICS_NO_DISTANCE]
+    return no_dist, need_dist
+
+
+def pycol_metrics_need_distance_matrix(metrics: list[str]) -> bool:
+    """True if any selected metric reads PyCol's n×n distance matrix."""
+    _, need_dist = partition_pycol_metrics(metrics)
+    return bool(need_dist)
+
+
+PycolDistanceMatrixMode = Literal["skip", "build"]
+
+
+def resolve_pycol_skip_distance_matrix(mode: str) -> bool:
+    """
+    Resolve ``--pycol-distance-matrix`` / batch ``PYCOL_DISTANCE_MATRIX``.
+
+    - ``skip`` → do not build n×n matrix; only :data:`PYCOL_METRICS_NO_DISTANCE` run.
+    - ``build`` → build matrix when any selected metric needs it (two-pass if mixed).
+    """
+    key = mode.strip().lower()
+    if key == "skip":
+        return True
+    if key == "build":
+        return False
+    raise ValueError(f"pycol distance-matrix mode must be skip or build; got {mode!r}")
 
 
 def parse_pycol_metrics_selection(
@@ -280,11 +318,66 @@ def subsample_xy_for_complexity(
     return x[idx], y[idx], meta
 
 
+def build_pycol_complexity(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    skip_distance_matrix: bool = False,
+) -> Any:
+    """
+    Construct a PyCol ``Complexity`` instance from in-memory arrays.
+
+    When ``skip_distance_matrix`` is true, skips the O(n²) HEOM matrix build. Only call metric
+    methods in :data:`PYCOL_METRICS_NO_DISTANCE` on the returned instance.
+    """
+    from pycol_complexity import complexity as pycol_complexity
+
+    x_f = np.asarray(x, dtype=float)
+    y_a = np.asarray(y)
+
+    if not skip_distance_matrix:
+        return pycol_complexity.Complexity(
+            file_type="array",
+            dataset={"X": x_f, "y": y_a},
+            distance_func="default",
+        )
+
+    comp = pycol_complexity.Complexity.__new__(pycol_complexity.Complexity)
+    comp.X = np.array(x_f)
+    comp.y = np.array(y_a)
+    comp.classes = np.unique(comp.y)
+    comp.meta = comp.is_categorical(comp.X)
+    comp.dist_matrix = np.zeros((0, 0), dtype=float)
+    comp.unnorm_dist_matrix = np.zeros((0, 0), dtype=float)
+    comp.class_count = np.zeros(len(comp.classes), dtype=float)
+    for i, cls in enumerate(comp.classes):
+        comp.class_count[i] = float(len(np.where(comp.y == cls)[0]))
+    comp.class_inxs = [np.where(comp.y == cls)[0] for cls in comp.classes]
+    comp.sphere_inst_count_T1 = []
+    comp.sphere_tuple_ONB = []
+    comp.metrics = {"feature": {}, "struct": {}, "instance": {}, "multi": {}}
+    return comp
+
+
+def _evaluate_pycol_metric(comp: Any, metric: str) -> Any:
+    if not hasattr(comp, metric):
+        return None
+    try:
+        val = getattr(comp, metric)()
+        if isinstance(val, (float, int, np.floating, np.integer)):
+            return float(val)
+        arr = np.asarray(val, dtype=float)
+        return float(np.nanmean(arr)) if arr.size else None
+    except Exception:
+        return None
+
+
 def compute_pycol_metrics(
     x: np.ndarray,
     y: np.ndarray,
     selected_metrics: list[str],
     *,
+    skip_distance_matrix: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     import os
@@ -293,33 +386,34 @@ def compute_pycol_metrics(
     for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         os.environ.setdefault(_k, "1")
 
-    from pycol_complexity import complexity as pycol_complexity
-
-    if progress_callback is not None:
-        progress_callback("__init__")
-
-    comp = pycol_complexity.Complexity(
-        file_type="array",
-        dataset={"X": np.asarray(x, dtype=float), "y": np.asarray(y)},
-        distance_func="default",
-    )
+    no_dist_metrics, need_dist_metrics = partition_pycol_metrics(selected_metrics)
+    omitted_need_dist = list(need_dist_metrics) if skip_distance_matrix else []
+    if skip_distance_matrix:
+        need_dist_metrics = []
 
     out: dict[str, Any] = {}
-    for metric in selected_metrics:
+    if omitted_need_dist:
+        out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
+
+    if no_dist_metrics:
         if progress_callback is not None:
-            progress_callback(metric)
-        if not hasattr(comp, metric):
-            out[f"pycol_{metric}"] = None
-            continue
-        try:
-            val = getattr(comp, metric)()
-            if isinstance(val, (float, int, np.floating, np.integer)):
-                out[f"pycol_{metric}"] = float(val)
-            else:
-                arr = np.asarray(val, dtype=float)
-                out[f"pycol_{metric}"] = float(np.nanmean(arr)) if arr.size else None
-        except Exception:
-            out[f"pycol_{metric}"] = None
+            progress_callback("__init__")
+        comp_fast = build_pycol_complexity(x, y, skip_distance_matrix=True)
+        for metric in no_dist_metrics:
+            if progress_callback is not None:
+                progress_callback(metric)
+            out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_fast, metric)
+        out["pycol_distance_matrix_skipped"] = True
+
+    if need_dist_metrics:
+        if progress_callback is not None:
+            progress_callback("__init_dist__")
+        comp_dist = build_pycol_complexity(x, y, skip_distance_matrix=False)
+        for metric in need_dist_metrics:
+            if progress_callback is not None:
+                progress_callback(metric)
+            out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_dist, metric)
+
     return out
 
 
