@@ -24,7 +24,7 @@ from complexity_core import (
     subsample_xy_for_complexity,
 )
 
-CLI_VERSION = "1.6.0"
+CLI_VERSION = "1.7.0"
 #
 # Above this row count (after cleaning / subsampling), PyCol defaults to **sequential** metrics in one
 # process via a single Complexity object — much lower peak RAM than a Process pool (each worker
@@ -83,15 +83,20 @@ def load_dataset(source: str, ref: str) -> tuple[pd.DataFrame, str]:
     raise ValueError("source must be one of: csv, uci, openml")
 
 
-def pycol_metric_job(args: tuple[np.ndarray, np.ndarray, str]) -> tuple[str, Any]:
-    x, y, metric = args
+def pycol_metric_job(
+    args: tuple[np.ndarray, np.ndarray, str, bool, int],
+) -> tuple[str, Any]:
+    x, y, metric, parallel_heom, heom_n_jobs = args
 
     key = f"pycol_{metric}"
+    needs_dist = metric not in PYCOL_METRICS_NO_DISTANCE
     try:
         comp = build_pycol_complexity(
             x,
             y,
-            skip_distance_matrix=metric in PYCOL_METRICS_NO_DISTANCE,
+            skip_distance_matrix=not needs_dist,
+            parallel_heom=parallel_heom and needs_dist,
+            heom_n_jobs=heom_n_jobs,
         )
         if not hasattr(comp, metric):
             return key, None
@@ -151,13 +156,19 @@ def run_parallel_jobs(
     *,
     show_progress: bool,
     desc: str,
+    pycol_parallel_heom: bool = False,
+    pycol_heom_n_jobs: int = 1,
 ) -> dict[str, Any]:
     if not metrics:
         return {}
-    worker: Callable[[tuple[np.ndarray, np.ndarray, str]], tuple[str, Any]] = (
-        pycol_metric_job if library == "pycol" else pymfe_metric_job
-    )
-    inputs = [(x, y, m) for m in metrics]
+    if library == "pycol":
+        worker: Callable[..., tuple[str, Any]] = pycol_metric_job
+        inputs = [
+            (x, y, m, bool(pycol_parallel_heom), int(pycol_heom_n_jobs)) for m in metrics
+        ]
+    else:
+        worker = pymfe_metric_job
+        inputs = [(x, y, m) for m in metrics]
     total = len(inputs)
     # Never spawn more pool workers than tasks or CPUs — e.g. cheap=7 metrics with --n-jobs 70
     # would otherwise fork 70 processes per run and can exhaust resources across a batch.
@@ -328,6 +339,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--pycol-parallel-heom",
+        action="store_true",
+        help=(
+            "When building the distance matrix, use project pycol_heom (row-parallel HEOM) "
+            "instead of PyCol's sequential __distance_HEOM. Only applies with "
+            "--pycol-distance-matrix build."
+        ),
+    )
+    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable progress bar and step messages (for logs/CI).",
@@ -447,6 +467,8 @@ def main() -> None:
                     y_met,
                     pycol_metrics_run,
                     skip_distance_matrix=pycol_skip_dist,
+                    parallel_heom=bool(args.pycol_parallel_heom) and not pycol_skip_dist,
+                    heom_n_jobs=n_jobs,
                     progress_callback=prog_cb,
                 )
             )
@@ -462,6 +484,8 @@ def main() -> None:
                     n_jobs,
                     show_progress=show_progress,
                     desc="pycol",
+                    pycol_parallel_heom=bool(args.pycol_parallel_heom) and not pycol_skip_dist,
+                    pycol_heom_n_jobs=n_jobs,
                 )
             )
         step("      PyCol done.")

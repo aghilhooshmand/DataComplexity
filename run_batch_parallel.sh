@@ -47,6 +47,11 @@ PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity"  # used only when PYCO
 #   build — compute distance-based metrics when they are in the selected set
 PYCOL_DISTANCE_MATRIX="skip"
 
+# Parallel HEOM in pycol_heom.py (only when PYCOL_DISTANCE_MATRIX=build):
+#   "1" = --pycol-parallel-heom (row-parallel matrix; uses N_JOBS workers)
+#   "0" = PyCol's built-in sequential __distance_HEOM
+PYCOL_PARALLEL_HEOM="0"
+
 # When LIBRARY is "both":
 PYMFE_METRICS="all"
 
@@ -113,6 +118,9 @@ fi
 append_pycol_dist_arg() {
   if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}")
+    if [[ "${PYCOL_DISTANCE_MATRIX}" == "build" && "${PYCOL_PARALLEL_HEOM}" == "1" ]]; then
+      cmd+=(--pycol-parallel-heom)
+    fi
   fi
 }
 
@@ -188,7 +196,7 @@ run_one() {
 total="${#DATASETS[@]}"
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
-  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}" >&2
+  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}" >&2
 fi
 
 i=0

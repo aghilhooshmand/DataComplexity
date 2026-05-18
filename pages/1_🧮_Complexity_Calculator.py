@@ -19,6 +19,7 @@ from complexity_core import (
 )
 from metric_ui import render_metric_selection_block
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
+from results_export import render_save_results_section
 
 
 def extract_last_int(text: str) -> int | None:
@@ -179,8 +180,8 @@ with st.expander("How to use this page", expanded=True):
    - just the dataset id (example: `53`), or
    - a full dataset link (example: `https://archive.ics.uci.edu/dataset/53/iris`).
 3. Select the **label/target column**.
-4. Select one or both libraries (`pycol`, `pymfe`). Either **use all metrics**, or choose **cheap / expensive** pools and fine-tune within each pool.
-5. Click **Compute complexity** to get a one-row table and download CSV.
+4. Select libraries and **PyCol presets** (`cheap_minimal`, `cheap`, …) or PyMFE pools. Choose **skip** or **build** for the PyCol distance matrix (build is RAM-heavy on large *n*).
+5. Click **Compute complexity**, then **Download CSV** or **Save copy to results/**.
 6. Click **Show t-SNE of dataset** to visualize the dataset in 2D.
 """
     )
@@ -246,16 +247,20 @@ if df is not None:
     summary_lines.append(f"- **Columns (original):** {int(df.shape[1])}")
     summary_lines.append(f"- **Missing values (original total):** {int(df.isna().sum().sum())}")
     summary_lines.append(f"- **Missing-value strategy:** `{missing_values}`")
+    n_rows_warn = int(df.shape[0])
     try:
         x_preview, y_preview, merged_preview = prepare_xy(
             df, label_col=label_col, missing_values=missing_values
         )
-        summary_lines.append(f"- **Rows (after cleaning):** {int(merged_preview.shape[0])}")
+        n_rows_warn = int(merged_preview.shape[0])
+        summary_lines.append(f"- **Rows (after cleaning):** {n_rows_warn}")
         summary_lines.append(f"- **Features (after encoding):** {int(x_preview.shape[1])}")
         summary_lines.append(f"- **Classes:** {int(len(set(y_preview.tolist())))}")
     except Exception as exc:
         summary_lines.append(f"- **Preprocessing status:** Failed ({exc})")
     st.markdown("\n".join(summary_lines))
+    if int(complexity_max_rows) > 0:
+        n_rows_warn = min(n_rows_warn, int(complexity_max_rows))
 
     st.success(f"Loaded dataset with shape: {df.shape}")
     st.caption("CSV preview")
@@ -267,16 +272,13 @@ if df is not None:
     )
 
     st.subheader("Metrics to compute")
-    st.caption(
-        "PyCol builds **internal pairwise distances once** and reuses them for every selected metric. "
-        "Cost still scales roughly like **O(n²)** in sample count *n*, so a huge table can feel frozen even if you "
-        "only pick a few metrics. PyMFE can also be heavy when many overlap / neighbor features run together."
-    )
-    selected_by_library = render_metric_selection_block(
+    metric_config = render_metric_selection_block(
         selected_libraries,
         key_prefix="calc",
         use_all_label="Use all metrics",
+        n_rows_for_warnings=n_rows_warn,
     )
+    selected_by_library = metric_config.selected_by_library
 
     with st.expander("Selected metric descriptions and references", expanded=False):
         render_metric_docs_multilib(selected_libraries, selected_by_library)
@@ -300,6 +302,8 @@ if df is not None:
 
             status_box.info("Step 2/4: Building dataset summary")
             result = basic_info_row(df, x, y, label_col, missing_values=missing_values)
+            if metric_config.pycol_preset:
+                result["pycol_metrics_preset"] = metric_config.pycol_preset
             xc, yc, cmeta = subsample_xy_for_complexity(x, y, int(complexity_max_rows))
             if int(complexity_max_rows) > 0:
                 result["complexity_max_rows"] = int(complexity_max_rows)
@@ -314,12 +318,15 @@ if df is not None:
                 if "pycol" in selected_libraries:
                     st_status.write(
                         f"**PyCol:** {len(selected_by_library.get('pycol', []))} metric(s); "
-                        f"rows for PyCol: **{yc.shape[0]}** (full cleaned: {y.shape[0]})."
+                        f"rows for PyCol: **{yc.shape[0]}** (full cleaned: {y.shape[0]}); "
+                        f"distance matrix: **{'skip' if metric_config.pycol_skip_distance_matrix else 'build'}**."
                     )
 
                     def _pycol_prog(m: str) -> None:
                         if m == "__init__":
-                            st_status.write("**PyCol:** initializing (distances / preprocessing)…")
+                            st_status.write("**PyCol:** initializing (no distance matrix)…")
+                        elif m == "__init_dist__":
+                            st_status.write("**PyCol:** building distance matrix (HEOM)…")
                         else:
                             st_status.write(f"**PyCol:** computing `{m}` …")
 
@@ -328,6 +335,9 @@ if df is not None:
                             xc,
                             yc,
                             selected_by_library.get("pycol", []),
+                            skip_distance_matrix=metric_config.pycol_skip_distance_matrix,
+                            parallel_heom=metric_config.pycol_parallel_heom,
+                            heom_n_jobs=4,
                             progress_callback=_pycol_prog,
                         )
                     )
@@ -336,23 +346,26 @@ if df is not None:
                     result.update(compute_pymfe_metrics(xc, yc, selected_by_library.get("pymfe", [])))
             progress.progress(85, text="Computed selected metrics")
 
-            status_box.info("Step 4/4: Preparing result table and download")
+            status_box.info("Step 4/4: Storing results")
             out_df = pd.DataFrame([result])
-            st.subheader("Complexity result (CSV row)")
-            st.dataframe(out_df, use_container_width=True)
-
-            csv_bytes = out_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download result CSV",
-                data=csv_bytes,
-                file_name=f"{sanitize_filename(dataset_name)}_complexity.csv",
-                mime="text/csv",
+            st.session_state["calculator_result_df"] = out_df
+            st.session_state["calculator_result_filename"] = (
+                f"{sanitize_filename(dataset_name)}_complexity.csv"
             )
             st.session_state["latest_xy"] = (x, y)
             progress.progress(100, text="Complexity computation finished")
-            status_box.success("Done: complexity metrics computed successfully.")
+            status_box.success("Done: complexity metrics computed. Save or download below.")
         except Exception as exc:
             st.error(f"Computation failed: {exc}")
+
+    if "calculator_result_df" in st.session_state:
+        render_save_results_section(
+            st.session_state["calculator_result_df"],
+            default_filename=str(
+                st.session_state.get("calculator_result_filename", "dataset_complexity.csv")
+            ),
+            key_prefix="calc_save",
+        )
 
     if st.button("Show t-SNE of dataset"):
         try:

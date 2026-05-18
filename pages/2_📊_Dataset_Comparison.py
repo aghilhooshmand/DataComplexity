@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-import altair as alt
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
@@ -18,7 +17,15 @@ from complexity_core import (
     run_tsne,
     subsample_xy_for_complexity,
 )
-from metric_ui import render_metric_selection_block
+from metric_ui import (
+    MetricSelectionConfig,
+    infer_comparison_metric_columns,
+    melt_metrics_for_comparison,
+    prepare_wide_df_for_metric_charts,
+    render_metric_selection_block,
+    render_per_metric_bar_charts,
+)
+from results_export import render_save_results_section
 
 
 def extract_last_int(text: str) -> int | None:
@@ -31,6 +38,38 @@ def extract_last_int(text: str) -> int | None:
 def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(name).strip())
     return cleaned.strip("._") or "dataset"
+
+
+def comparison_load_identity(source: str, loaded_name: str) -> str:
+    """Stable id for the dataset currently on screen (used to reset display-name widget)."""
+    if source == "Upload CSV":
+        uf = st.session_state.get("cmp_upload")
+        if uf is None:
+            return "upload|none"
+        return f"upload|{uf.name}|{getattr(uf, 'size', 0)}"
+    if source == "UCI":
+        ref = str(st.session_state.get("cmp_uci_ref", "")).strip()
+        return f"uci|{ref}|{loaded_name}"
+    ref = str(st.session_state.get("cmp_openml_ref", "")).strip()
+    return f"openml|{ref}|{loaded_name}"
+
+
+def sync_comparison_dataset_widgets(
+    df: pd.DataFrame,
+    loaded_name: str,
+    load_identity: str,
+) -> None:
+    """Reset display name (and label column) when user loads a different dataset."""
+    prev = st.session_state.get("cmp_load_identity")
+    if prev == load_identity:
+        return
+    st.session_state["cmp_load_identity"] = load_identity
+    st.session_state["cmp_custom_name"] = loaded_name
+    cols = list(df.columns)
+    if "target" in cols:
+        st.session_state["cmp_label_col"] = "target"
+    elif cols:
+        st.session_state["cmp_label_col"] = cols[-1]
 
 
 def load_upload_dataset() -> tuple[pd.DataFrame | None, str]:
@@ -110,6 +149,9 @@ def compute_for_dataset(
     *,
     missing_values: str,
     complexity_max_rows: int = 0,
+    pycol_skip_distance_matrix: bool = True,
+    pycol_parallel_heom: bool = False,
+    pycol_preset: str | None = None,
     pycol_progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
@@ -123,11 +165,16 @@ def compute_for_dataset(
         rec["n_rows_complexity_input"] = int(cmeta["n_rows_complexity_input"])
         rec["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
     if "pycol" in selected_libraries:
+        if pycol_preset:
+            rec["pycol_metrics_preset"] = pycol_preset
         rec.update(
             compute_pycol_metrics(
                 xc,
                 yc,
                 selected_by_library.get("pycol", []),
+                skip_distance_matrix=pycol_skip_distance_matrix,
+                parallel_heom=pycol_parallel_heom,
+                heom_n_jobs=4,
                 progress_callback=pycol_progress_callback,
             )
         )
@@ -137,7 +184,10 @@ def compute_for_dataset(
 
 
 st.title("Dataset Comparison")
-st.markdown("Add multiple datasets, compute complexity metrics, export comparison CSV, and visualize metric comparison.")
+st.markdown(
+    "Add multiple datasets, compute complexity metrics, **save or download** the comparison CSV, "
+    "and view per-metric bar charts."
+)
 
 if "comparison_datasets" not in st.session_state:
     st.session_state["comparison_datasets"] = []
@@ -154,20 +204,39 @@ else:
     df, loaded_name = load_openml_dataset()
 
 if df is not None:
+    load_id = comparison_load_identity(source, loaded_name)
+    sync_comparison_dataset_widgets(df, loaded_name, load_id)
     st.markdown(f"- **Loaded dataset:** `{loaded_name}`")
     st.markdown(f"- **Rows:** {df.shape[0]}  |  **Columns:** {df.shape[1]}")
-    label_col = st.selectbox("Label/target column for this dataset", options=list(df.columns), key="cmp_label_col")
-    custom_name = st.text_input("Dataset display name (optional)", value=loaded_name, key="cmp_custom_name")
+    label_col = st.selectbox(
+        "Label/target column for this dataset",
+        options=list(df.columns),
+        key="cmp_label_col",
+    )
+    custom_name = st.text_input(
+        "Dataset display name",
+        key="cmp_custom_name",
+        help="Filled automatically when you load or switch dataset (UCI id, upload file, OpenML id). "
+        "Edit before **Add dataset** if you want a custom label.",
+    )
     if st.button("Add dataset to comparison list", key="cmp_add_ds"):
-        st.session_state["comparison_datasets"].append(
-            {
-                "dataset_name": sanitize_filename(custom_name),
-                "df": df.copy(),
-                "label_col": label_col,
-                "source": source,
-            }
-        )
-        st.success(f"Added dataset: {custom_name}")
+        ds_key = sanitize_filename(custom_name)
+        existing = {d["dataset_name"] for d in st.session_state["comparison_datasets"]}
+        if ds_key in existing:
+            st.error(
+                f"Dataset name `{ds_key}` is already in the list. "
+                "Change **Dataset display name** so each row has a unique name (e.g. `uci_17`, `uci_186`)."
+            )
+        else:
+            st.session_state["comparison_datasets"].append(
+                {
+                    "dataset_name": ds_key,
+                    "df": df.copy(),
+                    "label_col": label_col,
+                    "source": source,
+                }
+            )
+            st.success(f"Added dataset: `{ds_key}`")
 
 datasets = st.session_state["comparison_datasets"]
 st.subheader("Datasets for comparison")
@@ -218,11 +287,19 @@ selected_libraries = st.multiselect(
 )
 
 st.subheader("Metrics to compute")
-selected_by_library = render_metric_selection_block(
+_cmp_n_rows_warn = 0
+if datasets:
+    _cmp_n_rows_warn = max(int(d["df"].shape[0]) for d in datasets)
+if int(cmp_complexity_max_rows) > 0 and _cmp_n_rows_warn > 0:
+    _cmp_n_rows_warn = min(_cmp_n_rows_warn, int(cmp_complexity_max_rows))
+
+metric_config = render_metric_selection_block(
     selected_libraries,
     key_prefix="cmp",
     use_all_label="Use all metrics",
+    n_rows_for_warnings=_cmp_n_rows_warn,
 )
+selected_by_library = metric_config.selected_by_library
 
 if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
     if not datasets:
@@ -244,7 +321,12 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                     if metric == "__init__":
                         progress.progress(
                             min(99, int((_i - 1) / total * 100 + 2)),
-                            text=f"[{_i}/{total}] `{_name}`: PyCol building distances…",
+                            text=f"[{_i}/{total}] `{_name}`: PyCol init (no distance matrix)…",
+                        )
+                    elif metric == "__init_dist__":
+                        progress.progress(
+                            min(99, int((_i - 1) / total * 100 + 2)),
+                            text=f"[{_i}/{total}] `{_name}`: PyCol building HEOM distances…",
                         )
                     else:
                         progress.progress(
@@ -261,6 +343,9 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                         selected_libraries=selected_libraries,
                         selected_by_library=selected_by_library,
                         missing_values=missing_values,
+                        pycol_skip_distance_matrix=metric_config.pycol_skip_distance_matrix,
+                        pycol_parallel_heom=metric_config.pycol_parallel_heom,
+                        pycol_preset=metric_config.pycol_preset,
                         complexity_max_rows=int(cmp_complexity_max_rows),
                         pycol_progress_callback=pcb,
                     )
@@ -272,26 +357,50 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
 
         out_df = pd.DataFrame(rows)
         st.session_state["comparison_result_df"] = out_df
-        st.subheader("Comparison CSV preview")
-        st.dataframe(out_df, use_container_width=True)
-        csv_bytes = out_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download comparison CSV",
-            data=csv_bytes,
-            file_name="datasets_complexity_comparison.csv",
-            mime="text/csv",
-            key="cmp_download",
-        )
+        st.session_state["comparison_result_filename"] = "datasets_complexity_comparison.csv"
+        st.success(f"Computed metrics for **{len(out_df)}** dataset(s). Save or download below.")
 
 if "comparison_result_df" in st.session_state:
     res_df = st.session_state["comparison_result_df"]
-    metric_cols = [
-        c
-        for c in res_df.columns
-        if (c.startswith("pycol_") or c.startswith("pymfe_")) and pd.api.types.is_numeric_dtype(res_df[c])
-    ]
+    render_save_results_section(
+        res_df,
+        default_filename=str(
+            st.session_state.get("comparison_result_filename", "datasets_complexity_comparison.csv")
+        ),
+        key_prefix="cmp_save",
+    )
+    metric_cols = infer_comparison_metric_columns(res_df)
     if metric_cols and "dataset_name" in res_df.columns:
         st.subheader("Metric comparison bar chart")
+        chart_rows = res_df
+        if "error" in res_df.columns:
+            err = res_df["error"]
+            failed_mask = err.notna() & err.astype(str).str.strip().ne("")
+            failed = res_df[failed_mask]
+            if not failed.empty:
+                st.warning(
+                    "Skipping datasets with computation errors in charts: "
+                    + ", ".join(f"`{n}`" for n in failed["dataset_name"].astype(str))
+                )
+            chart_rows = res_df[~failed_mask]
+        n_result_rows = len(chart_rows)
+        n_unique_names = int(chart_rows["dataset_name"].nunique()) if n_result_rows else 0
+        st.caption(
+            f"Results table: **{n_result_rows}** row(s), **{n_unique_names}** unique `dataset_name` "
+            f"(charts need one distinct name per row)."
+        )
+        if n_result_rows > 0 and n_unique_names < n_result_rows:
+            st.error(
+                f"Duplicate dataset names: **{n_result_rows}** rows but only **{n_unique_names}** "
+                "unique name(s). Bars were drawn on top of each other. "
+                "Clear the list, re-add each dataset with a **unique display name**, then recompute."
+            )
+            with st.expander("Rows in results (dataset_name)"):
+                st.dataframe(
+                    chart_rows[["dataset_name"]].reset_index(drop=True),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         plot_metrics = st.multiselect(
             "Metrics to plot",
             options=metric_cols,
@@ -299,30 +408,19 @@ if "comparison_result_df" in st.session_state:
             key="cmp_plot_metrics",
         )
         if plot_metrics:
-            chart_df = res_df[["dataset_name"] + plot_metrics].copy()
-            long_df = chart_df.melt(
-                id_vars=["dataset_name"],
-                value_vars=plot_metrics,
-                var_name="metric",
-                value_name="value",
+            _, chart_warnings = prepare_wide_df_for_metric_charts(
+                chart_rows, dataset_field="dataset_name", metric_columns=plot_metrics
             )
-            long_df["value"] = pd.to_numeric(long_df["value"], errors="coerce")
-            long_df = long_df.dropna(subset=["value"])
-            if long_df.empty:
-                st.warning("No numeric values available for selected metrics.")
-            else:
-                chart = (
-                    alt.Chart(long_df)
-                    .mark_bar()
-                    .encode(
-                        x=alt.X("metric:N", title="Metrics"),
-                        xOffset=alt.XOffset("dataset_name:N"),
-                        y=alt.Y("value:Q", title="Value"),
-                        color=alt.Color("dataset_name:N", title="Dataset"),
-                        tooltip=["dataset_name:N", "metric:N", alt.Tooltip("value:Q", format=".6g")],
-                    )
-                )
-                st.altair_chart(chart, use_container_width=True)
+            for msg in chart_warnings:
+                st.warning(msg)
+            long_df = melt_metrics_for_comparison(
+                chart_rows, dataset_field="dataset_name", metric_columns=plot_metrics
+            )
+            render_per_metric_bar_charts(
+                long_df,
+                dataset_field="dataset_name",
+                metrics_order=plot_metrics,
+            )
 
 st.subheader("t-SNE comparison")
 show_tsne_compare = st.checkbox(

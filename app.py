@@ -56,7 +56,7 @@ st.markdown(
   Merge pre-computed complexity CSVs (CLI or exports), download a merged table, and compare metrics with grouped bar charts.
 
 - **`Metric Reference`**  
-  Browse supported metrics with short descriptions and references.
+  PyCol overlap taxonomy (from [pycol](https://github.com/miriamspsantos/pycol/blob/doc/README.md)), **illustration PDFs**, **sample datasets** (add to comparison), and app metric tables.
 
 **Command-line:** use `parallel_complexity_cli.py` with `--missing-values` for the same strategies on a server (see `README.md`).
 """

@@ -1,1 +1,10 @@
-README
+Sample datasets bundled with PyCol (doc branch).
+
+Numerical features, no missing values; binary and multi-class problems.
+Used in the upstream README usage example:
+
+  complexity = Complexity("dataset/61_iris.arff", ...)
+
+See Metric Reference → Sample datasets in the Dataset Complexity app to load these into comparison runs.
+
+Source: https://github.com/miriamspsantos/pycol/tree/doc/dataset

@@ -3,23 +3,20 @@ from __future__ import annotations
 import io
 import re
 
-import altair as alt
 import pandas as pd
 import streamlit as st
+
+from metric_ui import (
+    infer_comparison_metric_columns,
+    melt_metrics_for_comparison,
+    prepare_wide_df_for_metric_charts,
+    render_per_metric_bar_charts,
+)
 
 
 def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(name).strip())
     return cleaned.strip("._") or "dataset"
-
-
-def infer_metric_columns(df: pd.DataFrame) -> list[str]:
-    out: list[str] = []
-    for c in df.columns:
-        if c.startswith("pycol_") or c.startswith("pymfe_"):
-            if pd.api.types.is_numeric_dtype(df[c]):
-                out.append(c)
-    return out
 
 
 def merge_uploaded_frames(frames: list[tuple[str, pd.DataFrame]], id_column: str) -> pd.DataFrame:
@@ -95,13 +92,22 @@ if uploaded:
                 key="upr_download_merged",
             )
 
-            metric_cols = infer_metric_columns(merged_df)
+            metric_cols = infer_comparison_metric_columns(merged_df)
             if not metric_cols:
                 st.warning(
                     "No numeric `pycol_*` or `pymfe_*` columns found—bar charts need those columns in the uploaded files."
                 )
             elif id_column in merged_df.columns:
                 st.subheader("Metric comparison bar chart")
+                n_rows = len(merged_df)
+                n_unique = int(merged_df[id_column].nunique())
+                st.caption(
+                    f"Merged table: **{n_rows}** row(s), **{n_unique}** unique `{id_column}`."
+                )
+                if n_unique < n_rows:
+                    st.error(
+                        f"Duplicate `{id_column}` values — charts will merge bars unless names are unique per row."
+                    )
                 plot_metrics = st.multiselect(
                     "Metrics to plot",
                     options=metric_cols,
@@ -109,33 +115,18 @@ if uploaded:
                     key="upr_plot_metrics",
                 )
                 if plot_metrics:
-                    chart_df = merged_df[[id_column] + plot_metrics].copy()
-                    long_df = chart_df.melt(
-                        id_vars=[id_column],
-                        value_vars=plot_metrics,
-                        var_name="metric",
-                        value_name="value",
+                    _, chart_warnings = prepare_wide_df_for_metric_charts(
+                        merged_df, dataset_field=id_column, metric_columns=plot_metrics
                     )
-                    long_df["value"] = pd.to_numeric(long_df["value"], errors="coerce")
-                    long_df = long_df.dropna(subset=["value"])
-                    if long_df.empty:
-                        st.warning("No numeric values available for selected metrics.")
-                    else:
-                        chart = (
-                            alt.Chart(long_df)
-                            .mark_bar()
-                            .encode(
-                                x=alt.X("metric:N", title="Metrics"),
-                                xOffset=alt.XOffset(f"{id_column}:N"),
-                                y=alt.Y("value:Q", title="Value"),
-                                color=alt.Color(f"{id_column}:N", title="Dataset"),
-                                tooltip=[
-                                    f"{id_column}:N",
-                                    "metric:N",
-                                    alt.Tooltip("value:Q", format=".6g"),
-                                ],
-                            )
-                        )
-                        st.altair_chart(chart, use_container_width=True)
+                    for msg in chart_warnings:
+                        st.warning(msg)
+                    long_df = melt_metrics_for_comparison(
+                        merged_df, dataset_field=id_column, metric_columns=plot_metrics
+                    )
+                    render_per_metric_bar_charts(
+                        long_df,
+                        dataset_field=id_column,
+                        metrics_order=plot_metrics,
+                    )
 else:
     st.caption("Upload exported or CLI-written complexity CSVs to merge, download, and plot metrics.")
