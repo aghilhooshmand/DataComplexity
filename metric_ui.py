@@ -131,7 +131,7 @@ def render_pycol_distance_options(
             "Parallel HEOM (project implementation)",
             value=False,
             key=f"{key_prefix}_pycol_parallel_heom",
-            help="Uses pycol_heom.py (row-parallel). Same RAM as PyCol; can be faster on CPU.",
+            help="Multi-process row workers for HEOM matrix build (pycol_heom.py). Unchecked = vectorized single-process.",
         )
     render_pycol_resource_warnings(
         n_rows=n_rows,

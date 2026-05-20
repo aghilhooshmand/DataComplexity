@@ -27,7 +27,8 @@ MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | imput
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 
 # If > 0, each CLI run subsamples at most this many rows for PyCol/PyMFE (much faster on large n; approximate).
-# 0 = use every row after cleaning (full-data metrics; needs enough RAM for PyCol on large n).
+# 0 = full n (heavy RAM/time when PYCOL_DISTANCE_MATRIX=build on CDC-sized sets).
+# 2000–5000 is practical for cheap+build across the batch.
 COMPLEXITY_MAX_ROWS="0"
 
 # PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
@@ -39,18 +40,18 @@ COMPLEXITY_MAX_ROWS="0"
 #   custom        — set PYCOL_CUSTOM_METRICS below (comma-separated), e.g. N1,N3,F1,F1v
 #   (You may also pass a bare comma list as PYCOL_METRICS_ARG without the word custom — then
 #    PYCOL_CUSTOM_METRICS is ignored.)
-PYCOL_METRICS_ARG="cheap_minimal"
-PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity"  # used only when PYCOL_METRICS_ARG="custom"
+PYCOL_METRICS_ARG="cheap"
+PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"  # used only when PYCOL_METRICS_ARG="custom"
 
 # PyCol n×n distance matrix (only when LIBRARY is pycol or both):
-#   skip  — no HEOM matrix; only metrics that do not need pairwise distances (default)
-#   build — compute distance-based metrics when they are in the selected set
-PYCOL_DISTANCE_MATRIX="skip"
+#   skip  — no HEOM matrix (cheap_minimal only)
+#   build — pycol_heom.py vectorized HEOM once, then N2,N3,C1,C2 (and custom list above)
+PYCOL_DISTANCE_MATRIX="build"
 
-# Parallel HEOM in pycol_heom.py (only when PYCOL_DISTANCE_MATRIX=build):
-#   "1" = --pycol-parallel-heom (row-parallel matrix; uses N_JOBS workers)
-#   "0" = PyCol's built-in sequential __distance_HEOM
-PYCOL_PARALLEL_HEOM="0"
+# Parallel HEOM row workers in pycol_heom.py (only when PYCOL_DISTANCE_MATRIX=build):
+#   "1" = --pycol-parallel-heom (uses N_JOBS workers)
+#   "0" = vectorized single-process row build (still uses pycol_heom, not PyCol nested loops)
+PYCOL_PARALLEL_HEOM="1"
 
 # When LIBRARY is "both":
 PYMFE_METRICS="all"

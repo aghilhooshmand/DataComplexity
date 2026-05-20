@@ -358,12 +358,11 @@ def build_pycol_complexity(
     When ``skip_distance_matrix`` is true, skips the O(n²) HEOM matrix build. Only call metric
     methods in :data:`PYCOL_METRICS_NO_DISTANCE` on the returned instance.
 
-    When ``parallel_heom`` is true (and the matrix is built), uses :mod:`pycol_heom` instead of
-    PyCol's sequential ``__distance_HEOM`` (same metric definition).
+    When the matrix is built, uses :mod:`pycol_heom` (vectorized HEOM, same values as PyCol)
+    instead of PyCol's nested-loop ``__distance_HEOM``. Set ``parallel_heom=True`` for
+    multi-process row chunks.
     """
     from pycol_complexity import complexity as pycol_complexity
-
-    from pycol_heom import build_heom_distance_matrices
 
     x_f = np.asarray(x, dtype=float)
     y_a = np.asarray(y)
@@ -377,20 +376,14 @@ def build_pycol_complexity(
             unnorm_dist_matrix=np.zeros((0, 0), dtype=float),
         )
 
-    if parallel_heom:
-        shell = pycol_complexity.Complexity.__new__(pycol_complexity.Complexity)
-        meta = shell.is_categorical(np.array(x_f))
-        dist, unnorm = build_heom_distance_matrices(
-            x_f, meta, n_jobs=max(1, int(heom_n_jobs))
-        )
-        return _init_pycol_complexity_shell(
-            pycol_complexity, x_f, y_a, dist_matrix=dist, unnorm_dist_matrix=unnorm
-        )
+    from pycol_heom import build_heom_distance_matrices
 
-    return pycol_complexity.Complexity(
-        file_type="array",
-        dataset={"X": x_f, "y": y_a},
-        distance_func="default",
+    shell = pycol_complexity.Complexity.__new__(pycol_complexity.Complexity)
+    meta = shell.is_categorical(np.array(x_f))
+    n_jobs = max(1, int(heom_n_jobs)) if parallel_heom else 1
+    dist, unnorm = build_heom_distance_matrices(x_f, meta, n_jobs=n_jobs)
+    return _init_pycol_complexity_shell(
+        pycol_complexity, x_f, y_a, dist_matrix=dist, unnorm_dist_matrix=unnorm
     )
 
 
@@ -445,6 +438,7 @@ def compute_pycol_metrics(
         out["pycol_distance_matrix_skipped"] = True
 
     if need_dist_metrics:
+        # One HEOM build → one Complexity shell → all distance metrics read dist_matrix.
         if progress_callback is not None:
             progress_callback("__init_dist__")
         comp_dist = build_pycol_complexity(

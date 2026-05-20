@@ -342,9 +342,9 @@ def main() -> None:
         "--pycol-parallel-heom",
         action="store_true",
         help=(
-            "When building the distance matrix, use project pycol_heom (row-parallel HEOM) "
-            "instead of PyCol's sequential __distance_HEOM. Only applies with "
-            "--pycol-distance-matrix build."
+            "Parallel row workers when building the HEOM matrix (pycol_heom.py). "
+            "Matrix build is always vectorized; this only adds multi-process rows. "
+            "Requires --pycol-distance-matrix build."
         ),
     )
     parser.add_argument(

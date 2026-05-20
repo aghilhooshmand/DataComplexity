@@ -1,0 +1,2 @@
+dataset_name,parallel_cli_version,source,label_column,missing_values,n_rows_original,n_columns_original,n_rows_used,n_features_after_encoding,n_classes,n_jobs,pycol_metrics_preset,pycol_skip_distance_matrix,pycol_N3,pycol_sequential_large_n
+uci_186,1.7.0,uci,target,impute_median,6497,12,6497,11,7,1,custom,False,0.3383099892257965,True
