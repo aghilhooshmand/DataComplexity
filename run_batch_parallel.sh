@@ -15,21 +15,22 @@ fi
 
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
+# Tuned for: many-core server (e.g. 80+ CPUs, ~125 GiB RAM), full samples, cheap+build.
 # ---------------------------------------------------------------------------
 LIBRARY="pycol"                    # pycol | pymfe | both
-# Upper bound for multiprocessing; CLI caps to min(this, #metrics, CPU count) so "cheap" runs
-# do not still fork dozens of idle workers (that pattern can freeze or fail after several datasets).
-# PyCol on large n (≥5000 rows after cleaning) defaults to sequential metrics in one process (lower RAM);
-# PyMFE still uses this cap for its pool. To force parallel PyCol workers on large n, add
-# --pycol-parallel-metrics to the python command in print_cmd/run_one below.
-N_JOBS="16"
+# Worker cap for HEOM rows (--pycol-parallel-heom) and PyCol metric pool (--pycol-parallel-metrics).
+# CLI uses min(N_JOBS, #metrics, CPU count). 24–32 is enough on an 82-core box; avoid N_JOBS=82.
+N_JOBS="24"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
 
-# If > 0, each CLI run subsamples at most this many rows for PyCol/PyMFE (much faster on large n; approximate).
-# 0 = full n (heavy RAM/time when PYCOL_DISTANCE_MATRIX=build on CDC-sized sets).
-# 2000–5000 is practical for cheap+build across the batch.
+# Default max rows per dataset (0 = all rows after cleaning).
 COMPLEXITY_MAX_ROWS="0"
+
+# Parallel PyCol metrics (one process per metric). Each distance metric rebuilds the full n×n
+# matrix → on adult/CDC with build this can exceed 125 GiB. Keep "0" for full-sample batch;
+# set "1" only for small n (e.g. breast) or with COMPLEXITY_MAX_ROWS capped.
+PYCOL_PARALLEL_METRICS="0"
 
 # PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
 #   cheap_minimal — F1,F2,F3,F4,F1v,input_noise,purity (no n×n distance matrix)
@@ -52,6 +53,10 @@ PYCOL_DISTANCE_MATRIX="build"
 #   "1" = --pycol-parallel-heom (uses N_JOBS workers)
 #   "0" = vectorized single-process row build (still uses pycol_heom, not PyCol nested loops)
 PYCOL_PARALLEL_HEOM="1"
+
+# Per-dataset row cap (optional 4th field in DATASETS): source|ref|label|max_rows
+# UCI 891 (CDC) ~253k rows: full n×n build needs ~1 TiB RAM — not feasible on 125 GiB.
+# 75000 rows ≈ ~90 GiB for two distance matrices alone; leave headroom for workers.
 
 # When LIBRARY is "both":
 PYMFE_METRICS="all"
@@ -77,10 +82,11 @@ DRY_RUN="${DRY_RUN:-0}"
 
 # ---------------------------------------------------------------------------
 # Dataset list: one entry per line inside the array.
-# Format:   source|ref|label_column
+# Format:   source|ref|label_column|[max_rows]
 #   source = uci | openml | csv
 #   ref     = UCI/OpenML URL or id, OR absolute path to CSV when source=csv
 #   label_column = target column name (for uci/openml from this CLI, use "target")
+#   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only (e.g. CDC on 125 GiB)
 # Use | as separator (do not use | inside URLs).
 # ---------------------------------------------------------------------------
 DATASETS=(
@@ -89,7 +95,7 @@ DATASETS=(
   "uci|https://archive.ics.uci.edu/dataset/2/adult|target"
   "uci|https://archive.ics.uci.edu/dataset/222/bank+marketing|target"
   "uci|https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping|target"
-  "uci|https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators|target"
+  "uci|https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators|target|75000"
   "uci|https://archive.ics.uci.edu/dataset/848/secondary+mushroom+dataset|target"
   "uci|https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume|target"
   # Example local CSV:
@@ -116,17 +122,29 @@ if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
   esac
 fi
 
-append_pycol_dist_arg() {
+append_pycol_parallel_args() {
   if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}")
     if [[ "${PYCOL_DISTANCE_MATRIX}" == "build" && "${PYCOL_PARALLEL_HEOM}" == "1" ]]; then
       cmd+=(--pycol-parallel-heom)
     fi
+    if [[ "${PYCOL_PARALLEL_METRICS}" == "1" ]]; then
+      cmd+=(--pycol-parallel-metrics)
+    fi
+  fi
+}
+
+append_complexity_max_rows_arg() {
+  local per_dataset_max="${1:-}"
+  if [[ -n "${per_dataset_max}" && "${per_dataset_max}" != "0" ]]; then
+    cmd+=(--complexity-max-rows "${per_dataset_max}")
+  elif [[ -n "${COMPLEXITY_MAX_ROWS:-}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
+    cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
   fi
 }
 
 print_cmd() {
-  local src="$1" ref="$2" lbl="$3"
+  local src="$1" ref="$2" lbl="$3" per_max="${4:-}"
   local -a cmd=("${PYTHON}" "${CLI}"
     --source "${src}"
     --ref "${ref}"
@@ -136,9 +154,7 @@ print_cmd() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
   )
-  if [[ -n "${COMPLEXITY_MAX_ROWS:-}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
-    cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
-  fi
+  append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
     if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
@@ -152,7 +168,7 @@ print_cmd() {
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
-  append_pycol_dist_arg
+  append_pycol_parallel_args
   if [[ "${NO_PROGRESS}" == "1" ]]; then
     cmd+=(--no-progress)
   fi
@@ -161,7 +177,7 @@ print_cmd() {
 }
 
 run_one() {
-  local src="$1" ref="$2" lbl="$3"
+  local src="$1" ref="$2" lbl="$3" per_max="${4:-}"
   local -a cmd=("${PYTHON}" "${CLI}"
     --source "${src}"
     --ref "${ref}"
@@ -171,9 +187,7 @@ run_one() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
   )
-  if [[ -n "${COMPLEXITY_MAX_ROWS:-}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
-    cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
-  fi
+  append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-metrics "${PYCOL_METRICS_ARG}" --pymfe-metrics "${PYMFE_METRICS}")
     if [[ "${PYCOL_METRICS_ARG}" == "custom" ]]; then
@@ -187,7 +201,7 @@ run_one() {
   else
     cmd+=(--metrics "${METRICS_SINGLE}")
   fi
-  append_pycol_dist_arg
+  append_pycol_parallel_args
   if [[ "${NO_PROGRESS}" == "1" ]]; then
     cmd+=(--no-progress)
   fi
@@ -197,7 +211,7 @@ run_one() {
 total="${#DATASETS[@]}"
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
-  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}" >&2
+  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}  parallel metrics: ${PYCOL_PARALLEL_METRICS}  n_jobs: ${N_JOBS}  max_rows(default): ${COMPLEXITY_MAX_ROWS}" >&2
 fi
 
 i=0
@@ -207,7 +221,7 @@ for entry in "${DATASETS[@]}"; do
   [[ "${entry}" =~ ^[[:space:]]*# ]] && continue
 
   i=$((i + 1))
-  IFS='|' read -r src ref lbl <<<"${entry}"
+  IFS='|' read -r src ref lbl per_max <<<"${entry}"
   if [[ -z "${src:-}" || -z "${ref:-}" || -z "${lbl:-}" ]]; then
     echo "Skip malformed entry [${i}]: ${entry}" >&2
     continue
@@ -215,14 +229,17 @@ for entry in "${DATASETS[@]}"; do
 
   echo "" >&2
   echo "========== [${i}/${total}] ${src}  ${ref} ==========" >&2
+  if [[ -n "${per_max:-}" && "${per_max}" != "0" ]]; then
+    echo "  complexity max rows (this dataset): ${per_max}" >&2
+  fi
 
   if [[ "${DRY_RUN}" == "1" ]]; then
-    print_cmd "${src}" "${ref}" "${lbl}"
+    print_cmd "${src}" "${ref}" "${lbl}" "${per_max:-}"
     continue
   fi
 
   set +e
-  run_one "${src}" "${ref}" "${lbl}"
+  run_one "${src}" "${ref}" "${lbl}" "${per_max:-}"
   code=$?
   set -e
 
