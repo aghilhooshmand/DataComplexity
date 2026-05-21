@@ -70,28 +70,20 @@ PYCOL_METRICS_NO_DISTANCE: frozenset[str, ...] = frozenset(
 # Presets for batch runs (names must match pycol-complexity methods).
 PYCOL_METRICS_CHEAP_MINIMAL: tuple[str, ...] = tuple(PYCOL_METRICS_NO_DISTANCE)
 
-PYCOL_METRICS_CHEAP: tuple[str, ...] = (
-    "F1",
-    "F2",
-    "F3",
-    "N2",
-    "N3",
-    "C1",
-    "C2",
+# Metrics that read unnorm_dist_matrix (T1 hypersphere radii; NSG/ICSV when sphere_count_method="T1").
+PYCOL_METRICS_NEED_UNNORM: frozenset[str, ...] = frozenset({"T1", "NSG", "ICSV"})
+
+# All metrics that need no matrix (F1–F4, …) or only dist_matrix (N1, N2, N3, N4, kDN, …) — one RAM tier.
+PYCOL_METRICS_CHEAP: tuple[str, ...] = tuple(
+    m for m in PYCOL_ALL_METRICS if m not in PYCOL_METRICS_NEED_UNNORM
 )
 
-PYCOL_METRICS_EXPENSIVE_CORE: tuple[str, ...] = (
-    "N1",
-    "N4",
-    "T1",
-    "LSC",
-    "kDN",
-    "borderline",
-)
+# Metrics that require both dist_matrix and unnorm_dist_matrix.
+PYCOL_METRICS_EXPENSIVE_CORE: tuple[str, ...] = tuple(PYCOL_METRICS_NEED_UNNORM)
 
 _cheap_set = frozenset(PYCOL_METRICS_CHEAP)
 PYCOL_METRICS_EXPENSIVE: tuple[str, ...] = tuple(
-    m for m in PYCOL_ALL_METRICS if m not in _cheap_set
+    m for m in PYCOL_ALL_METRICS if m in PYCOL_METRICS_NEED_UNNORM
 )
 
 PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
@@ -101,9 +93,6 @@ PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
     "expensive": PYCOL_METRICS_EXPENSIVE,
     "all": tuple(PYCOL_ALL_METRICS),
 }
-
-# Metrics that read unnorm_dist_matrix (T1 hypersphere radii; NSG/ICSV when sphere_count_method="T1").
-PYCOL_METRICS_NEED_UNNORM: frozenset[str, ...] = frozenset({"T1", "NSG", "ICSV"})
 
 # RAM tier per preset: skip | dist (normalized only) | both (normalized + unnormalized).
 PYCOL_PRESET_MATRIX_MODE: dict[str, Literal["skip", "dist", "both"]] = {
@@ -134,10 +123,57 @@ PYMFE_METRICS_CHEAP: tuple[str, ...] = (
 )
 
 METRIC_COST_HEURISTIC_CAPTION = (
-    "**RAM tiers:** *cheap_minimal* → **no** distance matrix. *cheap* → **normalized** HEOM only "
-    "(~half matrix RAM vs both). *expensive* / *expensive_core* → **both** matrices (T1, NSG, ICSV need unnormalized). "
-    "*custom* → auto from selected metric names."
+    "**RAM tiers:** *cheap_minimal* → **no** distance matrix (F1–F4, F1v, input_noise, purity). "
+    "*cheap* → **all other PyCol metrics except T1/NSG/ICSV** — skip or **one** normalized matrix only. "
+    "*expensive* / *expensive_core* → **T1, NSG, ICSV** (both matrices). *custom* → auto from selection."
 )
+
+# Short “why” text for Streamlit, CLI help, and docs (aligned with PYCOL_PRESET_MATRIX_MODE).
+PYCOL_PRESET_USER_WHY: dict[str, str] = {
+    "cheap_minimal": (
+        "Fastest option: feature overlap and purity only (F1–F4, F1v, input_noise, purity). "
+        "No row×row distance table — best for screening many datasets or very large n."
+    ),
+    "cheap": (
+        "Default for most benchmarks: all PyCol metrics except T1, NSG, ICSV (includes N1, N2, N3, N4, kDN, LSC, …). "
+        "Why one matrix max: those metrics only need normalized HEOM; we skip the second table to save ~50% RAM vs stock PyCol."
+    ),
+    "expensive_core": (
+        "Topology metrics T1, NSG, ICSV only. "
+        "Why two matrices: they use unnormalized HEOM (hypersphere radii), not just normalized distances."
+    ),
+    "expensive": (
+        "Same as expensive_core (T1, NSG, ICSV). Use when you only need the two-matrix tier without the full catalog."
+    ),
+    "all": (
+        "Every PyCol metric: combines cheap + expensive_core behaviour — needs two matrices whenever T1/NSG/ICSV run."
+    ),
+    "custom": (
+        "You pick metric names; the app infers RAM: no table (F1…), one table (N2, N4…), or two tables if T1/NSG/ICSV are selected."
+    ),
+}
+
+PYCOL_PRESETS_CLI_EPILOG = """
+PyCol presets (pick one; --pycol-distance-matrix auto is recommended):
+
+  cheap_minimal   No distance matrix. Fast overlap/purity (F1–F4, F1v, input_noise, purity).
+
+  cheap           All PyCol except T1, NSG, ICSV — at most ONE normalized distance matrix in RAM.
+                  Why: N1,N2,N3,N4,kDN,… do not need the unnormalized table; saves ~50% memory vs PyCol default.
+
+  expensive_core  T1, NSG, ICSV only — TWO matrices (normalized + unnormalized HEOM).
+                  Why: these metrics use hypersphere logic on unnormalized distances.
+
+  expensive       Same metrics as expensive_core.
+
+  all             Full catalog (same RAM rules as cheap + expensive_core combined).
+
+  custom          Comma-separated list; RAM tier inferred from names.
+
+HEOM tier (--pycol-distance-matrix): auto | skip | dist | both
+  auto  — follows preset above (default)
+  dist  — force one matrix; both — force two matrices; skip — force none
+""".strip()
 
 
 def partition_pycol_metrics(metrics: list[str]) -> tuple[list[str], list[str]]:

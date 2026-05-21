@@ -11,6 +11,8 @@ from complexity_core import (
     PYCOL_METRIC_PRESETS,
     PYCOL_METRICS_CHEAP_MINIMAL,
     PYCOL_METRICS_NO_DISTANCE,
+    PYCOL_PRESET_MATRIX_MODE,
+    PYCOL_PRESET_USER_WHY,
     PycolMatrixMode,
     available_metrics_by_library,
     estimate_heom_matrix_ram_gb,
@@ -20,13 +22,22 @@ from complexity_core import (
 )
 
 PYCOL_PRESET_LABELS: dict[str, str] = {
-    "cheap_minimal": "cheap_minimal — Level A: skip (F1–F4, F1v, input_noise, purity)",
-    "cheap": "cheap — Level B: normalized matrix (N2, N3, C1, C2)",
-    "expensive_core": "expensive_core — Level C: both matrices (includes T1)",
-    "expensive": "expensive — Level C: both matrices (full catalog minus cheap)",
-    "all": "all — Level C: both matrices (every PyCol metric)",
-    "custom": "custom — matrix tier auto from your selection",
+    "cheap_minimal": "cheap_minimal — no distance table (fast screening)",
+    "cheap": "cheap — one table max (almost all PyCol metrics)",
+    "expensive_core": "expensive_core — two tables (T1, NSG, ICSV)",
+    "expensive": "expensive — two tables (T1, NSG, ICSV)",
+    "all": "all — full PyCol catalog",
+    "custom": "custom — you choose metrics",
 }
+
+PYCOL_PRESET_ORDER: tuple[str, ...] = (
+    "cheap_minimal",
+    "cheap",
+    "expensive_core",
+    "expensive",
+    "all",
+    "custom",
+)
 
 
 @dataclass
@@ -79,15 +90,41 @@ def render_pycol_resource_warnings(
             st.warning("Consider **Max rows** subsampling unless you have plenty of RAM.")
 
 
+def render_pycol_preset_guide() -> None:
+    """Collapsible table of preset categories and why."""
+    with st.expander("PyCol preset categories — what & why", expanded=False):
+        st.markdown(METRIC_COST_HEURISTIC_CAPTION)
+        rows = []
+        for key in PYCOL_PRESET_ORDER:
+            if key == "custom":
+                continue
+            tier = PYCOL_PRESET_MATRIX_MODE.get(key, "—")
+            rows.append(
+                {
+                    "Preset": f"`{key}`",
+                    "Matrices in RAM": tier,
+                    "Why": PYCOL_PRESET_USER_WHY.get(key, ""),
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption(PYCOL_PRESET_USER_WHY["custom"])
+
+
 def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
+    render_pycol_preset_guide()
+    try:
+        default_index = PYCOL_PRESET_ORDER.index("cheap")
+    except ValueError:
+        default_index = 0
     preset = st.selectbox(
         "PyCol preset",
-        options=list(PYCOL_PRESET_LABELS.keys()),
+        options=list(PYCOL_PRESET_ORDER),
         format_func=lambda k: PYCOL_PRESET_LABELS.get(k, k),
-        index=0,
+        index=default_index,
         key=f"{key_prefix}_pycol_preset",
-        help="Matches CLI/batch presets in run_batch_parallel.sh.",
+        help="Categories match CLI --metrics and batch PYCOL_METRICS_ARG. HEOM storage is chosen automatically.",
     )
+    st.caption(PYCOL_PRESET_USER_WHY.get(preset, ""))
     if preset == "custom":
         all_m = available_metrics_by_library("pycol")
         metrics = st.multiselect(
@@ -98,7 +135,13 @@ def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
         )
     else:
         metrics = list(PYCOL_METRIC_PRESETS[preset])
-        st.caption(f"**{len(metrics)}** metrics: {', '.join(metrics)}")
+        tier = PYCOL_PRESET_MATRIX_MODE.get(preset, resolve_pycol_matrix_mode(metrics, preset=preset))
+        st.caption(
+            f"**{len(metrics)}** metrics · automatic HEOM tier: **{tier}** "
+            f"({PYCOL_MATRIX_MODE_LABELS.get(tier, tier)})"
+        )
+        with st.expander("Metric names in this preset", expanded=(len(metrics) <= 12)):
+            st.write(", ".join(metrics))
     return metrics, preset
 
 
@@ -381,7 +424,7 @@ def render_metric_selection_block(
     """
     Metric selection for Streamlit (Calculator / Comparison).
 
-    PyCol: CLI-aligned presets + skip/build distance matrix + optional parallel HEOM.
+    PyCol: CLI-aligned presets (cheap_minimal / cheap / expensive_core / …) + automatic HEOM tier.
     PyMFE: all metrics or cheap/expensive pools.
     """
     selected_by_library: dict[str, list[str]] = {}

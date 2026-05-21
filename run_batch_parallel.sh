@@ -15,7 +15,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
-# Tuned for: many-core server (e.g. 80+ CPUs, ~125 GiB RAM), full samples, cheap+build.
+# Tuned for: many-core server (e.g. 80+ CPUs, ~125 GiB RAM), full samples, cheap + auto HEOM tier.
 # ---------------------------------------------------------------------------
 LIBRARY="pycol"                    # pycol | pymfe | both
 # Worker cap for HEOM rows (--pycol-parallel-heom) and PyCol metric pool (--pycol-parallel-metrics).
@@ -32,17 +32,21 @@ COMPLEXITY_MAX_ROWS="0"
 # set "1" only for small n (e.g. breast) or with COMPLEXITY_MAX_ROWS capped.
 PYCOL_PARALLEL_METRICS="0"
 
-# PyCol metrics (when LIBRARY is pycol, or the PyCol side when LIBRARY is both):
-#   cheap_minimal — F1,F2,F3,F4,F1v,input_noise,purity (no n×n distance matrix)
-#   cheap         — F1,F2,F3,N2,N3,C1,C2
-#   expensive_core — N1,N4,T1,LSC,kDN,borderline,F1v,F4
-#   expensive     — all metrics except cheap (7 metrics)
-#   all           — full PYCOL_ALL_METRICS
-#   custom        — set PYCOL_CUSTOM_METRICS below (comma-separated), e.g. N1,N3,F1,F1v
-#   (You may also pass a bare comma list as PYCOL_METRICS_ARG without the word custom — then
-#    PYCOL_CUSTOM_METRICS is ignored.)
+# PyCol preset (when LIBRARY is pycol, or the PyCol side when LIBRARY is both).
+# Only PYCOL_METRICS_ARG is passed to the CLI unless you set it to "custom".
+#
+#   cheap_minimal — overlap/purity only; WHY: no row×row distance table (fastest, lowest RAM)
+#   cheap         — all PyCol except T1, NSG, ICSV (incl. N4, kDN, …); WHY: at most ONE matrix
+#   expensive_core — T1, NSG, ICSV only; WHY: need unnormalized HEOM → TWO matrices
+#   expensive     — same as expensive_core
+#   all           — full catalog (cheap + expensive_core rules combined)
+#   custom        — use PYCOL_CUSTOM_METRICS below (comma list), e.g. N1,N3,F1,F1v
+#   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
+#
+# Active setting below: "cheap" → ~26 metrics, HEOM tier from PYCOL_DISTANCE_MATRIX=auto → one matrix max.
 PYCOL_METRICS_ARG="cheap"
-PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"  # used only when PYCOL_METRICS_ARG="custom"
+# Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
+PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
 # PyCol HEOM RAM tier (only when LIBRARY is pycol or both):
 #   auto  — from preset: cheap_minimal→skip, cheap→dist, expensive*→both; custom→infer

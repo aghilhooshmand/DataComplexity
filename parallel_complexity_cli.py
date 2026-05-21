@@ -15,6 +15,7 @@ from complexity_core import (
     MISSING_VALUE_STRATEGIES,
     PYCOL_METRICS_NEED_UNNORM,
     PYCOL_METRICS_NO_DISTANCE,
+    PYCOL_PRESETS_CLI_EPILOG,
     PycolMatrixMode,
     build_pycol_complexity,
     compute_pycol_metrics,
@@ -263,7 +264,9 @@ def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Parallel complexity runner for one dataset (CSV/UCI/OpenML)."
+        description="Parallel complexity runner for one dataset (CSV/UCI/OpenML).",
+        epilog=PYCOL_PRESETS_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--source", required=True, choices=["csv", "uci", "openml"])
     parser.add_argument(
@@ -277,8 +280,9 @@ def main() -> None:
         "--metrics",
         default="all",
         help=(
-            "Single-library mode. For pycol: cheap_minimal | cheap | expensive_core | expensive | all | custom | or a comma-separated list "
-            "(e.g. F1,N3). If 'custom', also pass --pycol-custom-metrics. For pymfe: all | comma-separated names."
+            "PyCol presets: cheap_minimal (no matrix, fast); cheap (all PyCol except T1/NSG/ICSV, one matrix max); "
+            "expensive_core (T1, NSG, ICSV, two matrices); expensive; all; custom. "
+            "Or comma-separated names (e.g. F1,N3,N4). See epilog below for why. pymfe: all | list."
         ),
     )
     parser.add_argument(
@@ -346,10 +350,8 @@ def main() -> None:
         choices=("skip", "dist", "both", "auto", "build"),
         default="auto",
         help=(
-            "PyCol HEOM RAM tier (default: auto from preset/metrics). "
-            "skip = no matrix; dist = normalized dist_matrix only (~half RAM vs both); "
-            "both = dist + unnorm (T1, NSG, ICSV); auto = cheap_minimal→skip, cheap→dist, "
-            "expensive→both; custom→infer from metric names. Legacy build = auto."
+            "HEOM storage (default: auto). auto: cheap_minimal→no matrix, cheap→one matrix, "
+            "expensive_core→two matrices. dist/both/skip override. One matrix saves ~50%% RAM vs stock PyCol when N4,N2,… only."
         ),
     )
     parser.add_argument(
@@ -358,7 +360,7 @@ def main() -> None:
         help=(
             "Parallel row workers when building the HEOM matrix (pycol_heom.py). "
             "Matrix build is always vectorized; this only adds multi-process rows. "
-            "Requires --pycol-distance-matrix build."
+            "Use when HEOM tier is dist or both (not skip)."
         ),
     )
     parser.add_argument(

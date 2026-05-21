@@ -366,9 +366,9 @@ PyCol implements meta-features from the **classification complexity** literature
 | Preset | Metrics | HEOM tier (`pycol_matrix_mode`) | Matrices stored |
 |--------|---------|--------------------------------|-----------------|
 | **`cheap_minimal`** | F1, F2, F3, F4, F1v, input_noise, purity | **`skip`** | None |
-| **`cheap`** | F1, F2, F3, N2, N3, C1, C2 | **`dist`** | `dist_matrix` only |
-| **`expensive_core`** | N1, N4, T1, LSC, kDN, borderline | **`both`** | `dist` + `unnorm` |
-| **`expensive`** | All PyCol metrics **not** in `cheap` | **`both`** | `dist` + `unnorm` |
+| **`cheap`** | All PyCol metrics **except** T1, NSG, ICSV (includes **N1, N2, N3, N4**, kDN, LSC, … + F1–F4, …) | **`dist`** | One matrix when needed; none for F-only metrics |
+| **`expensive_core`** | T1, NSG, ICSV | **`both`** | `dist` + `unnorm` |
+| **`expensive`** | Same as `expensive_core` | **`both`** | `dist` + `unnorm` |
 | **`all`** | Full catalog below | **`both`** | `dist` + `unnorm` |
 | **`custom`** | Comma-separated list | **Inferred** | See below |
 

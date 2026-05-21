@@ -91,7 +91,7 @@ with tab_overview:
 - **Structural overlap** — boundaries, clusters, hypersphere coverage (N1, N2, T1, DBC, …).
 - **Multiresolution overlap** — grid purity, case-base profiles (MRCA, C1, C2, purity, …).
 
-This app runs a **subset** via `pycol-complexity` presets (`cheap_minimal`, `cheap`, …).
+This app runs a **subset** via presets: **cheap_minimal** (no distance table), **cheap** (one table max), **expensive_core** (T1, NSG, ICSV — two tables). See the Complexity Calculator expander *PyCol preset categories — what & why*.
 See the **Illustrations** tab for figures from the PyCol documentation.
         """
         % PYCOL_AIRE_PAPER

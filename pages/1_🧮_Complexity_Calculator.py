@@ -180,7 +180,11 @@ with st.expander("How to use this page", expanded=True):
    - just the dataset id (example: `53`), or
    - a full dataset link (example: `https://archive.ics.uci.edu/dataset/53/iris`).
 3. Select the **label/target column**.
-4. Select libraries and **PyCol presets** (`cheap_minimal`, `cheap`, …) or PyMFE pools. Choose **skip** or **build** for the PyCol distance matrix (build is RAM-heavy on large *n*).
+4. Select libraries and a **PyCol preset** — open *“PyCol preset categories — what & why”* for a short explanation:
+   - **cheap_minimal** — no distance table (fast);
+   - **cheap** — almost all metrics, **one** table max (recommended batch default);
+   - **expensive_core** — T1, NSG, ICSV (two tables).
+   HEOM storage is automatic; optional **Parallel HEOM build** when a table is needed.
 5. Click **Compute complexity**, then **Download CSV** or **Save copy to results/**.
 6. Click **Show t-SNE of dataset** to visualize the dataset in 2D.
 """
