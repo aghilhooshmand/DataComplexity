@@ -44,7 +44,7 @@ PYCOL_PARALLEL_METRICS="0"
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
 # Active setting below: "cheap" → ~26 metrics, HEOM tier from PYCOL_DISTANCE_MATRIX=auto → one matrix max.
-PYCOL_METRICS_ARG="cheap"
+PYCOL_METRICS_ARG="custom"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
