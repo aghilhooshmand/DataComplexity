@@ -1,89 +1,195 @@
-# PyCol complexity tool — team slides (non-technical)
+# PyCol complexity tool — team slides
 
-**Use this version** when people ask: *What was hard? What did you do? Why does it matter?*
+**Audience:** non-technical team · **Also see:** [README.md](../README.md) for full CLI/batch reference.
 
-Copy each slide into PowerPoint / Google Slides (about 2 minutes per slide).
+Copy each **Slide** into PowerPoint / Google Slides (~2 min per slide).
 
 ---
 
-## Slide 1 — The challenge
+## Slide 1 — Why this project exists
 
 ### Title
-**Making dataset “complexity” scores practical for real data**
+**Dataset complexity with PyCol — what we measure and what hurt**
 
-### What we are measuring
-- Tools like **PyCol** summarise how **hard** a dataset is for machine learning (e.g. overlap between classes, local structure).
-- Some scores only need simple summaries of the table.
-- Others need **every pair of rows compared** — that means building a large **distance table** (who is similar to whom).
+### What we measure
+- **PyCol** scores how **hard** a classification dataset is (class overlap, local neighbourhoods, imbalance, …).
+- Some scores only need the **table of features + labels**.
+- Others need a **pairwise distance table**: for every pair of rows, “how far apart?” (HEOM metric).
 
-### What was the problem?
-1. **Very slow** — the standard PyCol way of building that table uses nested loops over all rows. On thousands of rows it becomes painfully slow.
-2. **Heavy memory** — the full table still has to exist in memory for those scores (we did not remove that requirement).
-3. **Real datasets are messy** — missing values, text categories, different column types. We clean and encode data first so the maths is consistent.
+### Challenges we found
 
-### What we needed
-- Keep **the same definitions** as PyCol (so results stay comparable and trustworthy).
-- Make the **slow step much faster** so we can run batches and use the app on more datasets.
-- Let users choose: **quick run** (no distance table) vs **full run** (with distance-based scores).
+| # | Challenge | Impact |
+|---|-----------|--------|
+| **1** | **Too slow** | Stock PyCol builds the distance table with **nested Python loops** → unusable on 5k–50k rows. |
+| **2** | **Too much RAM** | PyCol stores **two** full n×n tables (`dist` + `unnorm`). RAM ≈ **16×n² bytes** for both. |
+| **3** | **Not all metrics need both tables** | e.g. **cheap** preset (N2, N3, C1, C2) only needs the **normalized** table — second table was wasted RAM. |
+| **4** | **Messy real data** | Missing values, categories → we clean and one-hot encode before HEOM. |
+| **5** | **Servers look “one CPU”** | Batch runs one dataset at a time; metric step is often sequential on large n (by design, to save RAM). |
 
-### One sentence for Q&A
-> *“PyCol’s distance step didn’t scale; we sped up only that step and left the actual complexity scores unchanged.”*
+### One sentence
+> *PyCol was correct but too slow and too heavy in memory; we kept the same maths and made the pipeline practical.*
 
 ---
 
-## Slide 2 — What we did and what you get
+## Slide 2 — How we improved the PyCol path (code)
 
 ### Title
-**Faster distance table — same PyCol scores**
+**Faster HEOM + smarter memory — same PyCol scores**
 
-### How we solved it (plain language)
-| Step | What it means |
-|------|----------------|
-| **1. Clean the data** | Handle missing values; turn text categories into numbers the tool understands. |
-| **2. Two modes** | **Quick:** only fast scores (no big distance table). **Full:** build the table, then run scores like N2, N3, C1, C2. |
-| **3. Faster table build** | We reimplemented the distance calculation with efficient maths (same rules, less waiting). |
-| **4. Checked it** | On wine and other sets, our table **matches PyCol’s** to numerical precision; sample scores (e.g. N3) agree. |
+### Improvement 1 — Faster distance build (`pycol_heom.py`)
 
-### What did *not* change?
-- The **meaning** of PyCol metrics (N3 still means the same thing).
-- The need for enough **RAM** on large datasets when you run the full mode.
-- The recommendation to **subsample** very large datasets (e.g. a few thousand rows) for exploratory runs.
+| Before (stock PyCol) | After (our build) |
+|----------------------|-------------------|
+| Triple **Python** loops over rows × rows × features | **Vectorized NumPy** (+ optional parallel rows) |
+| Same HEOM rules (range-normalized numeric features) | **Validated** vs native PyCol on wine |
+| One slow step before N2, N3, … | Same formulas; much less wall-clock on matrix build |
 
-### What you can do in the app
-- **Skip distance table** — fast, good for screening many datasets.
-- **Build distance table** — slower, needed for structure-based complexity (N2, N3, C1, C2).
-- **Batch script** — run the same settings across wine, breast cancer, adult, etc., and save one CSV for comparison.
+**We did not rewrite** N3, N2, etc. — PyCol still computes those from the table we fill.
 
-### Results in practice
-- **Wine / medium sets:** full mode becomes usable in the UI and batch jobs.
-- **Very large sets (e.g. CDC):** still need row limits or patience — the table grows with dataset size squared.
-- **Trust:** validation script confirms our fast build matches PyCol’s original table.
+### Improvement 2 — Three RAM levels (automatic from preset)
 
-### One sentence for Q&A
-> *“We built a faster engine for the distance table; PyCol still reads that table and computes the same complexity numbers.”*
+User picks **one preset**; the app/CLI/batch picks storage:
+
+| Level | Name | What is stored | Typical preset |
+|-------|------|----------------|----------------|
+| **A** | `skip` | No distance table | `cheap_minimal` |
+| **B** | `dist` | One table (normalized HEOM) | `cheap` |
+| **C** | `both` | Two tables (normalized + unnormalized) | `expensive`, `expensive_core`, `all` |
+
+**RAM example (n = 48,000, Adult):**
+- Both tables ≈ **37 GB**
+- One table (`cheap`) ≈ **18 GB** (~half)
+
+### Improvement 3 — Custom metrics
+
+If the user picks **custom** metrics, the code **infers** the level:
+- Only F1, F2, … → **skip**
+- N2, N3, … → **dist**
+- **T1**, **NSG**, **ICSV** (unnormalized geometry) → **both**
+
+### Proof
+```bash
+python validate_pycol_heom.py --uci-id 186 --n-rows 500
+```
 
 ---
 
-## Optional backup slide (if someone asks about categories)
+## Slide 3 — What users choose (presets only)
 
 ### Title
-**How do categories work?**
+**Three presets = three RAM levels — no manual matrix tuning**
 
-- In our pipeline, **text categories are converted to 0/1 columns** before distances are computed (standard ML preprocessing).
-- Distances are then computed with the **numeric** rule (scaled differences), not a separate “category mismatch” rule on raw labels.
-- **Wine** is all numeric already — no category issue there.
-- This matches how we use PyCol in the app today; raw ARFF-style categorical handling is only relevant for special PyCol file workflows.
+### PyCol presets (pick one)
+
+| Preset | What you get | Memory level |
+|--------|----------------|--------------|
+| **`cheap_minimal`** | Fast overlap / purity style metrics (F1–F4, F1v, …) | **A — skip** |
+| **`cheap`** | Above + structure metrics **N2, N3, C1, C2** | **B — one matrix** |
+| **`expensive` / `expensive_core` / `all`** | Neighbourhood / topology set (includes **T1**) | **C — two matrices** |
+| **`custom`** | You select metric names | **Auto** from selection |
+
+### Streamlit
+1. Load data → `impute_median` → choose **PyCol preset**.
+2. UI shows **HEOM tier** automatically (no skip/build confusion).
+3. Optional: **Parallel HEOM build** when tier is B or C.
+
+### Batch (`run_batch_parallel.sh`)
+- Set `PYCOL_METRICS_ARG="cheap"` (or minimal / expensive).
+- Set `PYCOL_DISTANCE_MATRIX="auto"` (recommended).
+- CDC line uses `|75000` row cap — full 253k rows needs ~1 TB for two matrices.
+
+### One sentence
+> *Pick cheap_minimal, cheap, or expensive — the system decides skip, one matrix, or two matrices.*
 
 ---
 
-## Cheat sheet — likely questions & short answers
+## Slide 4 — Arguments & config (technical handout)
+
+### Title
+**CLI / batch arguments after the 2025 HEOM update**
+
+### CLI (`parallel_complexity_cli.py` v1.7.0)
+
+| Argument | Values | Meaning |
+|----------|--------|---------|
+| `--metrics` | `cheap_minimal`, `cheap`, `expensive_core`, `expensive`, `all`, `custom`, or `F1,N3,…` | Metric preset or list |
+| `--pycol-distance-matrix` | **`auto`** (default), `skip`, `dist`, `both` | HEOM RAM tier; `auto` follows preset / custom inference |
+| `--pycol-parallel-heom` | flag | Multi-core row build (tier B or C only) |
+| `--pycol-parallel-metrics` | flag | One process per metric — **avoid on large n** (RAM) |
+| `--complexity-max-rows` | `0` or N | Subsample rows for speed/RAM |
+| `--n-jobs` | e.g. `24` | Cap for HEOM workers |
+
+**Examples:**
+```bash
+# Level A
+--metrics cheap_minimal --pycol-distance-matrix auto
+
+# Level B (Adult on 125 GB server)
+--metrics cheap --pycol-distance-matrix auto --pycol-parallel-heom --n-jobs 24
+
+# Level C
+--metrics expensive_core --pycol-distance-matrix auto
+```
+
+### Batch shell variables
+
+| Variable | Example | Notes |
+|----------|---------|--------|
+| `PYCOL_METRICS_ARG` | `cheap` | Drives preset → matrix tier when `auto` |
+| `PYCOL_DISTANCE_MATRIX` | `auto` | `skip` / `dist` / `both` to force |
+| `PYCOL_PARALLEL_HEOM` | `1` | Parallel matrix build |
+| `PYCOL_PARALLEL_METRICS` | `0` | Keep off for full-sample batches |
+| `COMPLEXITY_MAX_ROWS` | `0` | Global subsample; CDC uses `|75000` per line |
+
+### New CSV columns
+- `pycol_matrix_mode` — `skip`, `dist`, or `both`
+- `pycol_heom_unnorm_skipped` — true when only one matrix was stored
+
+### Legacy note
+- Old flag **`build`** → now means **`auto`** (infer tier), not “always two matrices”.
+- Streamlit no longer asks skip vs build manually for presets.
+
+---
+
+## Cheat sheet — Q&A
 
 | Question | Short answer |
 |----------|----------------|
-| What was the challenge? | PyCol’s pairwise distance step was too slow for interactive use and batches. |
-| How did you solve it? | Faster distance-table build; same PyCol formulas afterward. |
-| Is it still PyCol? | Yes for the **scores**; only the **table build** is our optimised version. |
-| Skip vs Build? | Skip = fast, fewer metrics. Build = full metrics that need the distance table. |
-| Did you prove it? | Yes — automated check vs PyCol on wine (matrices and N3 match). |
-| Euclidean distance? | No — still HEOM-style (feature-wise scaling), not straight Euclidean. |
-| Why is large data still hard? | The full n×n table is inherent to those metrics; we made building it faster, not smaller. |
+| What were the challenges? | Slow HEOM loops; huge RAM (two matrices); not all metrics need both tables. |
+| How did we improve PyCol code? | `pycol_heom.py`: vectorized HEOM + optional skip of 2nd matrix. |
+| Is it still PyCol? | **Yes** for metric values; **our** code only builds the table faster/cheaper. |
+| cheap vs cheap_minimal? | minimal = no table; cheap = **one** table for N2,N3,C1,C2. |
+| Why two matrices in PyCol? | Normalized distances for most metrics; **unnormalized** for T1-style hypersphere logic. |
+| Why only one matrix for cheap? | N2,N3,C1,C2 use **dist_matrix** only — saves ~50% RAM. |
+| What is HEOM vs Euclidean? | HEOM scales each feature by column range; handles mixed data better than raw Euclidean. |
+| Why one CPU on server? | Datasets run in series; large n uses one process for metrics; HEOM build can use many cores briefly. |
+| How prove correctness? | `validate_pycol_heom.py` on wine (matrices + N3). |
+| CDC full sample? | Needs ~1 TB for two matrices — use row cap or `cheap` (one matrix). |
+
+---
+
+## Diagram (optional slide)
+
+```mermaid
+flowchart TB
+  subgraph presets [User picks preset]
+    M[cheap_minimal]
+    C[cheap]
+    E[expensive / all]
+  end
+  subgraph tiers [Code picks RAM tier]
+    A[skip — no matrix]
+    B[dist — 1 matrix]
+    D[both — 2 matrices]
+  end
+  subgraph code [Our code]
+    H[pycol_heom.py fast HEOM]
+    P[PyCol N2 N3 T1 …]
+  end
+  M --> A
+  C --> B
+  E --> D
+  B --> H
+  D --> H
+  H --> P
+```

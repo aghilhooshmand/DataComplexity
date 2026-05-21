@@ -58,7 +58,7 @@ python parallel_complexity_cli.py --version
 python parallel_complexity_cli.py \
   --source uci --ref 186 --label-column target \
   --library pycol --metrics cheap \
-  --pycol-distance-matrix build --pycol-parallel-heom \
+  --pycol-distance-matrix auto --pycol-parallel-heom \
   --missing-values impute_median \
   --output-csv results/wine.csv
 ```
@@ -81,8 +81,9 @@ PyCol and PyMFE are powerful but awkward for **repeated benchmarking** on messy 
 - **Unified loading** — CSV, UCI (`ucimlrepo`), OpenML (`openml`)
 - **Consistent preprocessing** — missing tokens, one-hot categoricals, imputation strategies
 - **Preset metric groups** — `cheap_minimal`, `cheap`, `expensive_core`, …
-- **Faster HEOM distance matrices** — [`pycol_heom.py`](pycol_heom.py) (same PyCol definition, vectorized build)
-- **RAM-aware modes** — skip vs build distance matrix; subsampling; batch per-dataset row caps
+- **Faster HEOM distance matrices** — [`pycol_heom.py`](pycol_heom.py) (vectorized build; validated vs native PyCol)
+- **Three RAM tiers** — `skip` / `dist` (one matrix) / `both` (two matrices), chosen automatically from preset or custom metrics
+- **Subsampling & batch caps** — `--complexity-max-rows`, per-dataset `max_rows` in `DATASETS` (e.g. CDC)
 - **Streamlit workspace** — calculator, multi-dataset comparison, metric reference with PyCol illustrations
 
 ```mermaid
@@ -130,30 +131,51 @@ python validate_pycol_heom.py --uci-id 186 --n-rows 500
 
 ### Challenge 2 — The distance matrix uses a lot of RAM
 
-Two float64 matrices are stored: `dist_matrix` and `unnorm_dist_matrix`.
+Stock PyCol always builds **two** float64 n×n matrices:
+
+| Matrix | Role |
+|--------|------|
+| **`dist_matrix`** | Range-normalized HEOM — used by **N2, N3, C1, C2**, kDN, most neighbour metrics |
+| **`unnorm_dist_matrix`** | Unnormalized HEOM — used by **T1** (and NSG/ICSV when using T1-style spheres) |
 
 ```text
-Approximate RAM ≈ 16 × n² bytes
-  n =  5,000  →  ~0.4 GB
-  n = 10,000  →  ~1.6 GB
-  n = 48,000  →  ~37 GB   (e.g. Adult — feasible on a 125 GB server)
-  n =253,000  →  ~1 TB    (CDC full sample — not feasible without subsampling)
+RAM (float64)  ≈  8 × n² bytes per matrix
+  both matrices (stock PyCol)     ≈ 16 × n² bytes
+  dist only (cheap preset)        ≈  8 × n² bytes   (~50% less)
+
+  n =  5,000   →  ~0.2 GB (dist) / ~0.4 GB (both)
+  n = 10,000   →  ~0.8 GB / ~1.6 GB
+  n = 48,000   → ~18 GB / ~37 GB   (Adult on a 125 GB server: use cheap → dist)
+  n =253,000   → ~160 GB / ~1 TB   (CDC full n — not feasible; subsample or use dist-only metrics)
 ```
 
-**What we did:**
+### Challenge 3 — Not every metric needs both matrices
 
-| Strategy | Where |
-|----------|--------|
-| **Skip** matrix | `--pycol-distance-matrix skip` / Streamlit “Skip” |
+The **`cheap`** preset only needs **`dist_matrix`**, but stock PyCol still allocated **both** → wasted RAM on large batches.
+
+**What we did — three automatic tiers** (`resolve_pycol_matrix_mode` in [`complexity_core.py`](complexity_core.py)):
+
+| Tier | `pycol_matrix_mode` | Preset / rule |
+|------|---------------------|---------------|
+| **A** | `skip` | `cheap_minimal` — no pairwise table |
+| **B** | `dist` | `cheap` — one normalized matrix only |
+| **C** | `both` | `expensive`, `expensive_core`, `all` |
+| **Custom** | inferred | Any **T1 / NSG / ICSV** → `both`; else N* → `dist`; only F* → `skip` |
+
+[`pycol_heom.py`](pycol_heom.py) accepts `compute_unnorm=False` so tier **B** skips building and storing the second matrix.
+
+| Other RAM strategies | Where |
+|----------------------|--------|
 | **Subsample** | `--complexity-max-rows N` / `COMPLEXITY_MAX_ROWS` |
-| **Per-dataset cap** | 4th field in `DATASETS` (batch) — CDC defaults to `75000` on large-RAM profiles |
-| **One matrix, sequential metrics** | Default for n ≥ 5,000 (avoids duplicating matrices per worker) |
+| **Per-dataset cap** | 4th field in `DATASETS` — e.g. CDC `\|75000` |
+| **Sequential metrics** (n ≥ 5000) | Default — one Complexity instance, not one matrix per worker |
+| **Avoid** `--pycol-parallel-metrics` on large n | Each worker could rebuild a full matrix |
 
-### Challenge 3 — Categorical features
+### Challenge 4 — Categorical features
 
 PyCol HEOM supports a **categorical mismatch** rule (`meta[k]=1`). In **this project’s pipeline**, string categories are **one-hot encoded** first (`prepare_xy`), then treated as **numeric HEOM** on 0/1 columns — the usual path for UCI CSVs loaded through the app/CLI.
 
-### Challenge 4 — Large jobs look “single-core”
+### Challenge 5 — Large jobs look “single-core”
 
 Even on an 82-core server you may see **one busy CPU** for long stretches:
 
@@ -183,11 +205,10 @@ streamlit run app.py
 1. Load a dataset (e.g. UCI Wine `186`).
 2. Label column: `target` (UCI/OpenML default).
 3. Missing values: **`impute_median`**.
-4. Library: **PyCol**, preset **`cheap_minimal`**.
-5. Distance matrix: **Skip** (fast).
-6. **Compute complexity**.
+4. Library: **PyCol**, preset **`cheap_minimal`** (tier **A — skip** is automatic).
+5. **Compute complexity** — UI shows HEOM tier and RAM hint.
 
-When you need **N2, N3, C1, C2**, switch preset to **`cheap`** and distance matrix to **Build** (optionally enable **Parallel HEOM**). The UI shows RAM estimates.
+When you need **N2, N3, C1, C2**, switch preset to **`cheap`** (tier **B — one matrix**, ~half the RAM of stock PyCol). For **T1** and related measures, use **`expensive_core`** or **`all`** (tier **C — both matrices**). Optional: **Parallel HEOM build** when tier is B or C.
 
 ---
 
@@ -216,44 +237,54 @@ python parallel_complexity_cli.py --help
 | `--output-csv` | `parallel_dataset_complexity.csv` | Output path; upserts by `dataset_name` |
 | `--complexity-max-rows` | `0` | If `N > 0`, random subsample to N rows (fixed seed) for metrics |
 | `--n-jobs` | half of CPUs | Cap for parallel HEOM rows and/or metric pool |
-| `--pycol-distance-matrix` | `skip` | `skip` = no n×n table; `build` = HEOM + distance-based metrics |
-| `--pycol-parallel-heom` | off | Multi-process row build via `pycol_heom.py` (requires `build`) |
+| `--pycol-distance-matrix` | `auto` | `auto` = tier from preset; or `skip` / `dist` / `both` |
+| `--pycol-parallel-heom` | off | Multi-process row build (tiers **dist** / **both**) |
 | `--pycol-parallel-metrics` | off | One process per metric; **high RAM** on large n |
 | `--no-progress` | off | Quiet mode for logs and batch |
 | `--version` | — | Print CLI version |
 
 ### Example commands
 
-**Fast screening (no distance matrix):**
+**Tier A — no distance matrix (`cheap_minimal`):**
 
 ```bash
 python parallel_complexity_cli.py \
   --source uci --ref 186 --label-column target \
   --library pycol --metrics cheap_minimal \
-  --pycol-distance-matrix skip \
+  --pycol-distance-matrix auto \
   --output-csv results/wine_fast.csv
 ```
 
-**Structure metrics with fast HEOM (server-friendly):**
+**Tier B — one matrix (`cheap`, ~50% less matrix RAM than stock PyCol):**
 
 ```bash
 python parallel_complexity_cli.py \
   --source uci --ref 2 --label-column target \
   --library pycol --metrics cheap \
-  --pycol-distance-matrix build --pycol-parallel-heom \
+  --pycol-distance-matrix auto --pycol-parallel-heom \
   --n-jobs 24 --missing-values impute_median \
   --output-csv results/adult_cheap.csv
 ```
 
-**Large dataset — subsampled approximate run:**
+**Tier B on large CDC — subsampled:**
 
 ```bash
 python parallel_complexity_cli.py \
   --source uci --ref 891 --label-column target \
   --library pycol --metrics cheap \
-  --pycol-distance-matrix build --pycol-parallel-heom \
+  --pycol-distance-matrix auto --pycol-parallel-heom \
   --complexity-max-rows 75000 --n-jobs 24 \
   --output-csv results/cdc_cheap.csv
+```
+
+**Tier C — both matrices (`expensive_core`, includes T1):**
+
+```bash
+python parallel_complexity_cli.py \
+  --source uci --ref 17 --label-column target \
+  --library pycol --metrics expensive_core \
+  --pycol-distance-matrix auto --pycol-parallel-heom \
+  --output-csv results/breast_expensive.csv
 ```
 
 **PyMFE only:**
@@ -272,7 +303,7 @@ python parallel_complexity_cli.py \
   --source uci --ref 17 --label-column target \
   --library both \
   --pycol-metrics cheap --pymfe-metrics c1,c2,t2,t3 \
-  --pycol-distance-matrix build \
+  --pycol-distance-matrix auto \
   --output-csv results/breast_both.csv
 ```
 
@@ -302,8 +333,8 @@ DRY_RUN=1 ./run_batch_parallel.sh
 | `OUTPUT_CSV` | `results/batch_parallel_complexity.csv` | Combined results |
 | `COMPLEXITY_MAX_ROWS` | `0` | Global subsample cap (`0` = all rows) |
 | `PYCOL_METRICS_ARG` | `cheap` | PyCol preset or comma list |
-| `PYCOL_DISTANCE_MATRIX` | `build` | `skip` or `build` |
-| `PYCOL_PARALLEL_HEOM` | `1` | Adds `--pycol-parallel-heom` when `build` |
+| `PYCOL_DISTANCE_MATRIX` | `auto` | `auto` (from preset), or force `skip` / `dist` / `both` |
+| `PYCOL_PARALLEL_HEOM` | `1` | Adds `--pycol-parallel-heom` when tier is not `skip` |
 | `PYCOL_PARALLEL_METRICS` | `0` | Keep `0` for full-sample + build on large sets |
 | `DATASETS` | see script | `source\|ref\|label\|[max_rows]` per line |
 | `DRY_RUN` | `0` | `1` = print only |
@@ -332,14 +363,16 @@ PyCol implements meta-features from the **classification complexity** literature
 
 ### Presets (Streamlit, CLI, batch)
 
-| Preset | Metrics | Distance matrix |
-|--------|---------|-----------------|
-| **`cheap_minimal`** | F1, F2, F3, F4, F1v, input_noise, purity | **Not required** |
-| **`cheap`** | F1, F2, F3, N2, N3, C1, C2 | **Required** |
-| **`expensive_core`** | N1, N4, T1, LSC, kDN, borderline | **Required** |
-| **`expensive`** | All PyCol metrics **not** in `cheap` | Mixed |
-| **`all`** | Full catalog below | Most need matrix |
-| **`custom`** | Your comma-separated list | Depends on metrics |
+| Preset | Metrics | HEOM tier (`pycol_matrix_mode`) | Matrices stored |
+|--------|---------|--------------------------------|-----------------|
+| **`cheap_minimal`** | F1, F2, F3, F4, F1v, input_noise, purity | **`skip`** | None |
+| **`cheap`** | F1, F2, F3, N2, N3, C1, C2 | **`dist`** | `dist_matrix` only |
+| **`expensive_core`** | N1, N4, T1, LSC, kDN, borderline | **`both`** | `dist` + `unnorm` |
+| **`expensive`** | All PyCol metrics **not** in `cheap` | **`both`** | `dist` + `unnorm` |
+| **`all`** | Full catalog below | **`both`** | `dist` + `unnorm` |
+| **`custom`** | Comma-separated list | **Inferred** | See below |
+
+**Custom inference:** metrics needing **unnorm** → `T1`, `NSG`, `ICSV`; any other distance metric → `dist` if no unnorm metrics; feature-only → `skip`.
 
 ### Metrics that do **not** need the distance matrix
 
@@ -414,7 +447,7 @@ python validate_pycol_heom.py --uci-id 186 --n-rows 500
 python validate_pycol_heom.py --synthetic --synthetic-rows 200
 ```
 
-Exit code **0** = PASS. See also [`docs/pycol_heom_build_slides.md`](docs/pycol_heom_build_slides.md) for a non-technical team summary.
+Exit code **0** = PASS. See also [`docs/pycol_heom_build_slides.md`](docs/pycol_heom_build_slides.md) for a **team slide deck** (challenges, three RAM tiers, CLI/batch arguments).
 
 ---
 
@@ -427,8 +460,10 @@ Exit code **0** = PASS. See also [`docs/pycol_heom_build_slides.md`](docs/pycol_
 | `pycol_*` | PyCol metric values |
 | `pymfe_*` | PyMFE metric values |
 | `pycol_metrics_preset`, `pycol_skip_distance_matrix` | PyCol run settings |
-| `pycol_distance_matrix_skipped` | True when matrix was skipped |
-| `pycol_metrics_omitted_need_distance` | Metrics skipped because of `skip` |
+| `pycol_matrix_mode` | `skip`, `dist`, or `both` (HEOM RAM tier) |
+| `pycol_distance_matrix_skipped` | True when tier is `skip` |
+| `pycol_heom_unnorm_skipped` | True when tier is `dist` (second matrix not stored) |
+| `pycol_metrics_omitted_need_distance` | Metrics skipped because tier is `skip` |
 | `pycol_sequential_large_n` | True when n ≥ 5000 sequential path was used |
 | `pycol_heom_parallel` | True when parallel HEOM was used |
 | `complexity_subsampled`, `complexity_max_rows` | Subsample metadata |
@@ -463,7 +498,8 @@ requirements.txt
 | UCI / OpenML load fails | Check id/URL, network, `ucimlrepo` / `openml` install |
 | Process killed / OOM | `cheap_minimal` + `skip`, or lower `--complexity-max-rows`, or per-dataset `max_rows` in batch |
 | Very slow, one CPU | Expected for large n during N3; enable `--pycol-parallel-heom`; avoid `--pycol-parallel-metrics` on large n |
-| Metrics missing in CSV | They need `build` — check `pycol_metrics_omitted_need_distance` |
+| Metrics missing in CSV | Tier was `skip` — check `pycol_metrics_omitted_need_distance`; use `cheap` or higher |
+| OOM with `cheap` on huge n | Normal — use `COMPLEXITY_MAX_ROWS` or `\|max_rows` on batch line |
 | Adult + `drop_rows` empty | Use `impute_median` |
 | Streamlit UI stale | Hard-refresh browser tab |
 | Clickstream UCI 553 fails | Known `ucimlrepo` issue — batch continues if `CONTINUE_ON_ERROR=1` |
