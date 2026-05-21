@@ -92,6 +92,13 @@ DRY_RUN="${DRY_RUN:-0}"
 # Use | as separator (do not use | inside URLs).
 # ---------------------------------------------------------------------------
 DATASETS=(
+  "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
+  "uci|https://archive.ics.uci.edu/dataset/2/adult|target"
+  "uci|https://archive.ics.uci.edu/dataset/222/bank+marketing|target"
+  "uci|https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping|target"
+  "uci|https://archive.ics.uci.edu/dataset/186/wine+quality|target"
+  "uci|https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators|target"
+  "uci|https://archive.ics.uci.edu/dataset/848/secondary+mushroom+dataset|target"
   "uci|https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume|target"
   # Example local CSV:
   # "csv|/absolute/path/to/data.csv|class"
