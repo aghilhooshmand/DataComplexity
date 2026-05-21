@@ -44,14 +44,12 @@ PYCOL_PARALLEL_METRICS="0"
 PYCOL_METRICS_ARG="cheap"
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"  # used only when PYCOL_METRICS_ARG="custom"
 
-# PyCol n×n distance matrix (only when LIBRARY is pycol or both):
-#   skip  — no HEOM matrix (cheap_minimal only)
-#   build — pycol_heom.py vectorized HEOM once, then N2,N3,C1,C2 (and custom list above)
-PYCOL_DISTANCE_MATRIX="build"
+# PyCol HEOM RAM tier (only when LIBRARY is pycol or both):
+#   auto  — from preset: cheap_minimal→skip, cheap→dist, expensive*→both; custom→infer
+#   skip | dist | both — force tier (dist = one matrix ~½ RAM of both)
+PYCOL_DISTANCE_MATRIX="auto"
 
-# Parallel HEOM row workers in pycol_heom.py (only when PYCOL_DISTANCE_MATRIX=build):
-#   "1" = --pycol-parallel-heom (uses N_JOBS workers)
-#   "0" = vectorized single-process row build (still uses pycol_heom, not PyCol nested loops)
+# Parallel HEOM row workers (when tier is dist or both):
 PYCOL_PARALLEL_HEOM="1"
 
 # Per-dataset row cap (optional 4th field in DATASETS): source|ref|label|max_rows
@@ -113,10 +111,12 @@ if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     exit 1
   fi
   case "${PYCOL_DISTANCE_MATRIX}" in
+    auto|AUTO) PYCOL_DISTANCE_MATRIX="auto" ;;
     skip|SKIP) PYCOL_DISTANCE_MATRIX="skip" ;;
-    build|BUILD) PYCOL_DISTANCE_MATRIX="build" ;;
+    dist|DIST|build|BUILD) PYCOL_DISTANCE_MATRIX="dist" ;;
+    both|BOTH|unnorm|UNNORM) PYCOL_DISTANCE_MATRIX="both" ;;
     *)
-      echo "PYCOL_DISTANCE_MATRIX must be skip or build; got: ${PYCOL_DISTANCE_MATRIX}" >&2
+      echo "PYCOL_DISTANCE_MATRIX must be auto, skip, dist, or both; got: ${PYCOL_DISTANCE_MATRIX}" >&2
       exit 1
       ;;
   esac
@@ -125,7 +125,7 @@ fi
 append_pycol_parallel_args() {
   if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}")
-    if [[ "${PYCOL_DISTANCE_MATRIX}" == "build" && "${PYCOL_PARALLEL_HEOM}" == "1" ]]; then
+    if [[ "${PYCOL_PARALLEL_HEOM}" == "1" && "${PYCOL_DISTANCE_MATRIX}" != "skip" ]]; then
       cmd+=(--pycol-parallel-heom)
     fi
     if [[ "${PYCOL_PARALLEL_METRICS}" == "1" ]]; then

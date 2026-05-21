@@ -7,21 +7,25 @@ import streamlit as st
 
 from complexity_core import (
     METRIC_COST_HEURISTIC_CAPTION,
+    PYCOL_MATRIX_MODE_LABELS,
     PYCOL_METRIC_PRESETS,
     PYCOL_METRICS_CHEAP_MINIMAL,
     PYCOL_METRICS_NO_DISTANCE,
+    PycolMatrixMode,
     available_metrics_by_library,
+    estimate_heom_matrix_ram_gb,
     get_cheap_expensive_pools,
     partition_pycol_metrics,
+    resolve_pycol_matrix_mode,
 )
 
 PYCOL_PRESET_LABELS: dict[str, str] = {
-    "cheap_minimal": "cheap_minimal — F1–F4, F1v, input_noise, purity (no distance matrix)",
-    "cheap": "cheap — minimal + N2, N3, C1, C2 (needs distances)",
-    "expensive_core": "expensive_core — N1, N4, T1, LSC, kDN, borderline",
-    "expensive": "expensive — all PyCol metrics not in cheap",
-    "all": "all — full PyCol catalog",
-    "custom": "custom — pick metrics yourself",
+    "cheap_minimal": "cheap_minimal — Level A: skip (F1–F4, F1v, input_noise, purity)",
+    "cheap": "cheap — Level B: normalized matrix (N2, N3, C1, C2)",
+    "expensive_core": "expensive_core — Level C: both matrices (includes T1)",
+    "expensive": "expensive — Level C: both matrices (full catalog minus cheap)",
+    "all": "all — Level C: both matrices (every PyCol metric)",
+    "custom": "custom — matrix tier auto from your selection",
 }
 
 
@@ -30,56 +34,49 @@ class MetricSelectionConfig:
     """Metric lists and PyCol run options (aligned with parallel_complexity_cli)."""
 
     selected_by_library: dict[str, list[str]]
+    pycol_matrix_mode: PycolMatrixMode = "skip"
     pycol_skip_distance_matrix: bool = True
     pycol_parallel_heom: bool = False
     pycol_preset: str | None = None
-
-
-def estimate_heom_matrix_ram_gb(n_rows: int) -> float:
-    """Both dist_matrix and unnorm_dist_matrix, float64."""
-    n = int(n_rows)
-    if n <= 0:
-        return 0.0
-    return 2.0 * (n**2) * 8.0 / (1024**3)
 
 
 def render_pycol_resource_warnings(
     *,
     n_rows: int,
     metrics: list[str],
-    skip_distance_matrix: bool,
+    matrix_mode: PycolMatrixMode,
 ) -> None:
     """Warn about time/RAM before PyCol runs."""
     no_dist, need_dist = partition_pycol_metrics(metrics)
-    if skip_distance_matrix:
+    label = PYCOL_MATRIX_MODE_LABELS.get(matrix_mode, matrix_mode)
+    st.info(f"**HEOM tier (from preset/metrics):** {label}")
+
+    if matrix_mode == "skip":
         if need_dist:
             st.warning(
-                "**Distance matrix: skip** — metrics that need pairwise distances will **not** be "
-                f"computed: **{', '.join(need_dist)}**. "
-                f"Only these will run: **{', '.join(no_dist) or '(none)'}**."
-            )
-        elif n_rows > 50_000:
-            st.info(
-                f"**{n_rows:,} rows** with **skip** is usually fine (no n×n matrix). "
-                "Runtime still grows with rows × features for overlap metrics."
+                "Metrics that need pairwise distances will **not** be computed: "
+                f"**{', '.join(need_dist)}**. "
+                f"Running: **{', '.join(no_dist) or '(none)'}**."
             )
         return
 
     if need_dist or not no_dist:
-        ram_gb = estimate_heom_matrix_ram_gb(n_rows)
+        ram_gb = estimate_heom_matrix_ram_gb(n_rows, matrix_mode)
         st.warning(
-            f"**Distance matrix: build** at **n = {n_rows:,}** needs about **{ram_gb:.2f} GB RAM** "
-            "for the two HEOM matrices alone (before Python overhead). "
-            "Time scales roughly with **n²**. "
-            "For large datasets use **Max rows** subsampling (e.g. 3k–10k) or preset **cheap_minimal** with **skip**."
+            f"At **n = {n_rows:,}**, HEOM matrices need about **{ram_gb:.2f} GB RAM** "
+            "(before Python overhead). Time scales roughly with **n²**."
         )
-        if n_rows > 20_000:
+        if n_rows > 20_000 and matrix_mode == "both":
             st.error(
-                f"**n = {n_rows:,}** is very large for a full distance matrix (~{ram_gb:.0f} GB). "
-                "Lower **Max rows for complexity** or choose **skip** + **cheap_minimal**."
+                f"**n = {n_rows:,}** is very large for **two** full matrices (~{ram_gb:.0f} GB). "
+                "Use **cheap** preset, subsample rows, or drop T1/NSG/ICSV from custom."
+            )
+        elif n_rows > 20_000 and matrix_mode == "dist":
+            st.warning(
+                f"**n = {n_rows:,}** with **one** matrix (~{ram_gb:.0f} GB) — feasible on many servers; still slow."
             )
         elif n_rows > 8_000:
-            st.warning("Consider **Max rows** ≤ 8,000 unless you have plenty of RAM.")
+            st.warning("Consider **Max rows** subsampling unless you have plenty of RAM.")
 
 
 def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
@@ -105,40 +102,31 @@ def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
     return metrics, preset
 
 
-def render_pycol_distance_options(
+def render_pycol_heom_options(
     metrics: list[str],
     *,
+    preset: str | None,
     n_rows: int,
     key_prefix: str,
-) -> tuple[bool, bool]:
-    """Returns (skip_distance_matrix, parallel_heom)."""
-    st.markdown("**PyCol distance matrix (HEOM)**")
-    dist_mode = st.radio(
-        "Build n×n pairwise distance matrix?",
-        options=["skip", "build"],
-        format_func=lambda x: {
-            "skip": "Skip — fast; only metrics that do not need pairwise distances",
-            "build": "Build — required for N2, N3, kDN, N1, … (high RAM on large n)",
-        }[x],
-        index=0,
-        key=f"{key_prefix}_pycol_dist_mode",
-        horizontal=True,
-    )
-    skip_dist = dist_mode == "skip"
+) -> tuple[PycolMatrixMode, bool]:
+    """Returns (matrix_mode, parallel_heom). Tier is chosen from preset/metrics."""
+    matrix_mode = resolve_pycol_matrix_mode(metrics, preset=preset)
+    st.markdown("**PyCol HEOM (automatic from preset)**")
+    st.caption(PYCOL_MATRIX_MODE_LABELS.get(matrix_mode, matrix_mode))
     parallel_heom = False
-    if not skip_dist:
+    if matrix_mode != "skip":
         parallel_heom = st.checkbox(
-            "Parallel HEOM (project implementation)",
-            value=False,
+            "Parallel HEOM build",
+            value=True,
             key=f"{key_prefix}_pycol_parallel_heom",
-            help="Multi-process row workers for HEOM matrix build (pycol_heom.py). Unchecked = vectorized single-process.",
+            help="Multi-process row workers (pycol_heom.py).",
         )
     render_pycol_resource_warnings(
         n_rows=n_rows,
         metrics=metrics,
-        skip_distance_matrix=skip_dist,
+        matrix_mode=matrix_mode,
     )
-    return skip_dist, parallel_heom
+    return matrix_mode, parallel_heom
 
 
 # PyCol run metadata stored in CSV — not complexity measure values for bar charts.
@@ -397,7 +385,7 @@ def render_metric_selection_block(
     PyMFE: all metrics or cheap/expensive pools.
     """
     selected_by_library: dict[str, list[str]] = {}
-    pycol_skip = True
+    pycol_matrix_mode: PycolMatrixMode = "skip"
     pycol_parallel_heom = False
     pycol_preset: str | None = None
 
@@ -425,16 +413,18 @@ def render_metric_selection_block(
                         "**All PyCol metrics** includes many that need an **n×n distance matrix**. "
                         "This is **time- and memory-intensive** on large datasets."
                     )
-                pycol_skip, pycol_parallel_heom = render_pycol_distance_options(
+                pycol_matrix_mode, pycol_parallel_heom = render_pycol_heom_options(
                     selected_by_library[lib],
+                    preset=pycol_preset,
                     n_rows=n_rows_for_warnings,
                     key_prefix=f"{key_prefix}_all",
                 )
             else:
                 metrics, pycol_preset = render_pycol_preset_metrics(key_prefix=key_prefix)
                 selected_by_library[lib] = metrics
-                pycol_skip, pycol_parallel_heom = render_pycol_distance_options(
+                pycol_matrix_mode, pycol_parallel_heom = render_pycol_heom_options(
                     metrics,
+                    preset=pycol_preset,
                     n_rows=n_rows_for_warnings,
                     key_prefix=key_prefix,
                 )
@@ -452,7 +442,8 @@ def render_metric_selection_block(
 
     return MetricSelectionConfig(
         selected_by_library=selected_by_library,
-        pycol_skip_distance_matrix=pycol_skip,
+        pycol_matrix_mode=pycol_matrix_mode,
+        pycol_skip_distance_matrix=(pycol_matrix_mode == "skip"),
         pycol_parallel_heom=pycol_parallel_heom,
         pycol_preset=pycol_preset,
     )

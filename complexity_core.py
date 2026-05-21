@@ -102,6 +102,26 @@ PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
     "all": tuple(PYCOL_ALL_METRICS),
 }
 
+# Metrics that read unnorm_dist_matrix (T1 hypersphere radii; NSG/ICSV when sphere_count_method="T1").
+PYCOL_METRICS_NEED_UNNORM: frozenset[str, ...] = frozenset({"T1", "NSG", "ICSV"})
+
+# RAM tier per preset: skip | dist (normalized only) | both (normalized + unnormalized).
+PYCOL_PRESET_MATRIX_MODE: dict[str, Literal["skip", "dist", "both"]] = {
+    "cheap_minimal": "skip",
+    "cheap": "dist",
+    "expensive_core": "both",
+    "expensive": "both",
+    "all": "both",
+}
+
+PycolMatrixMode = Literal["skip", "dist", "both"]
+
+PYCOL_MATRIX_MODE_LABELS: dict[PycolMatrixMode, str] = {
+    "skip": "Level A — no distance matrix",
+    "dist": "Level B — normalized dist_matrix only (~½ matrix RAM)",
+    "both": "Level C — dist_matrix + unnorm_dist_matrix",
+}
+
 # PyMFE complexity: cheap pool = mostly label / light dimensionality stats (see PyMFE docs:
 # ft_c1, ft_c2 use y; ft_t2 uses N only; ft_t4 uses PCA ratio). Neighbor / graph / overlap
 # measures are grouped as expensive (heuristic; not an official PyMFE cost table).
@@ -114,10 +134,9 @@ PYMFE_METRICS_CHEAP: tuple[str, ...] = (
 )
 
 METRIC_COST_HEURISTIC_CAPTION = (
-    "**Cost tiers (heuristic):** *cheap_minimal* = overlap / feature-space metrics without a "
-    "pairwise distance matrix (F1–F4, F1v, input_noise, purity). *cheap* adds N2,N3,C1,C2 "
-    "(needs distances). *expensive_core* = heavier neighbor/geometry subset. *expensive* = all "
-    "PyCol metrics not in *cheap*. Presets are for practical batch/UI guidance only."
+    "**RAM tiers:** *cheap_minimal* → **no** distance matrix. *cheap* → **normalized** HEOM only "
+    "(~half matrix RAM vs both). *expensive* / *expensive_core* → **both** matrices (T1, NSG, ICSV need unnormalized). "
+    "*custom* → auto from selected metric names."
 )
 
 
@@ -134,22 +153,83 @@ def pycol_metrics_need_distance_matrix(metrics: list[str]) -> bool:
     return bool(need_dist)
 
 
-PycolDistanceMatrixMode = Literal["skip", "build"]
+def pycol_metrics_need_unnorm_matrix(metrics: list[str]) -> bool:
+    """True if any selected metric may read unnorm_dist_matrix."""
+    return bool(set(metrics) & PYCOL_METRICS_NEED_UNNORM)
+
+
+def resolve_pycol_matrix_mode(
+    metrics: list[str],
+    *,
+    preset: str | None = None,
+    override: str | None = None,
+) -> PycolMatrixMode:
+    """
+    Choose HEOM RAM tier from preset and/or metric list.
+
+    - **skip** — no n×n matrix (:data:`PYCOL_METRICS_NO_DISTANCE` only).
+    - **dist** — ``dist_matrix`` only (``cheap``, most neighbour metrics).
+    - **both** — ``dist_matrix`` + ``unnorm_dist_matrix`` (T1, NSG, ICSV).
+    """
+    if override is not None:
+        key = override.strip().lower()
+        aliases = {"build": "auto", "normalized": "dist", "norm": "dist", "unnorm": "both"}
+        key = aliases.get(key, key)
+        if key == "auto":
+            override = None
+        elif key in ("skip", "dist", "both"):
+            if key == "skip":
+                return "skip"
+            if key == "dist":
+                if not pycol_metrics_need_distance_matrix(metrics):
+                    return "skip"
+                return "dist"
+            if not pycol_metrics_need_distance_matrix(metrics):
+                return "skip"
+            return "both"
+        else:
+            raise ValueError(
+                f"pycol distance-matrix mode must be skip, dist, both, auto, or build; got {override!r}"
+            )
+
+    if preset and preset != "custom" and preset in PYCOL_PRESET_MATRIX_MODE:
+        mode = PYCOL_PRESET_MATRIX_MODE[preset]
+        if mode == "skip":
+            return "skip"
+        if not pycol_metrics_need_distance_matrix(metrics):
+            return "skip"
+        if mode == "both" or pycol_metrics_need_unnorm_matrix(metrics):
+            return "both"
+        return "dist"
+
+    if not pycol_metrics_need_distance_matrix(metrics):
+        return "skip"
+    if pycol_metrics_need_unnorm_matrix(metrics):
+        return "both"
+    return "dist"
 
 
 def resolve_pycol_skip_distance_matrix(mode: str) -> bool:
     """
-    Resolve ``--pycol-distance-matrix`` / batch ``PYCOL_DISTANCE_MATRIX``.
+    Legacy CLI/batch flag: ``skip`` → True; ``build``/``dist``/``both``/``auto`` → False.
 
-    - ``skip`` → do not build n×n matrix; only :data:`PYCOL_METRICS_NO_DISTANCE` run.
-    - ``build`` → build matrix when any selected metric needs it (two-pass if mixed).
+    Prefer :func:`resolve_pycol_matrix_mode` for dist vs both.
     """
     key = mode.strip().lower()
     if key == "skip":
         return True
-    if key == "build":
+    if key in ("build", "dist", "both", "auto", "normalized", "norm", "unnorm"):
         return False
-    raise ValueError(f"pycol distance-matrix mode must be skip or build; got {mode!r}")
+    raise ValueError(f"pycol distance-matrix mode must be skip, dist, both, auto, or build; got {mode!r}")
+
+
+def estimate_heom_matrix_ram_gb(n_rows: int, matrix_mode: PycolMatrixMode) -> float:
+    """float64 HEOM matrix RAM (one or two n×n arrays)."""
+    n = int(n_rows)
+    if n <= 0 or matrix_mode == "skip":
+        return 0.0
+    matrices = 2 if matrix_mode == "both" else 1
+    return matrices * (n**2) * 8.0 / (1024**3)
 
 
 def parse_pycol_metrics_selection(
@@ -348,26 +428,30 @@ def build_pycol_complexity(
     x: np.ndarray,
     y: np.ndarray,
     *,
-    skip_distance_matrix: bool = False,
+    matrix_mode: PycolMatrixMode = "skip",
+    skip_distance_matrix: bool | None = None,
     parallel_heom: bool = False,
     heom_n_jobs: int = 1,
 ) -> Any:
     """
     Construct a PyCol ``Complexity`` instance from in-memory arrays.
 
-    When ``skip_distance_matrix`` is true, skips the O(n²) HEOM matrix build. Only call metric
-    methods in :data:`PYCOL_METRICS_NO_DISTANCE` on the returned instance.
+    ``matrix_mode``: ``skip`` | ``dist`` (normalized matrix only) | ``both``.
+    Legacy ``skip_distance_matrix=True`` forces ``skip`` when ``matrix_mode`` not set.
 
-    When the matrix is built, uses :mod:`pycol_heom` (vectorized HEOM, same values as PyCol)
-    instead of PyCol's nested-loop ``__distance_HEOM``. Set ``parallel_heom=True`` for
-    multi-process row chunks.
+    Uses :mod:`pycol_heom` (vectorized HEOM). ``parallel_heom=True`` enables row workers.
     """
     from pycol_complexity import complexity as pycol_complexity
 
     x_f = np.asarray(x, dtype=float)
     y_a = np.asarray(y)
 
-    if skip_distance_matrix:
+    if skip_distance_matrix is True:
+        mode: PycolMatrixMode = "skip"
+    else:
+        mode = matrix_mode
+
+    if mode == "skip":
         return _init_pycol_complexity_shell(
             pycol_complexity,
             x_f,
@@ -381,7 +465,10 @@ def build_pycol_complexity(
     shell = pycol_complexity.Complexity.__new__(pycol_complexity.Complexity)
     meta = shell.is_categorical(np.array(x_f))
     n_jobs = max(1, int(heom_n_jobs)) if parallel_heom else 1
-    dist, unnorm = build_heom_distance_matrices(x_f, meta, n_jobs=n_jobs)
+    compute_unnorm = mode == "both"
+    dist, unnorm = build_heom_distance_matrices(
+        x_f, meta, n_jobs=n_jobs, compute_unnorm=compute_unnorm
+    )
     return _init_pycol_complexity_shell(
         pycol_complexity, x_f, y_a, dist_matrix=dist, unnorm_dist_matrix=unnorm
     )
@@ -405,7 +492,9 @@ def compute_pycol_metrics(
     y: np.ndarray,
     selected_metrics: list[str],
     *,
-    skip_distance_matrix: bool = False,
+    matrix_mode: PycolMatrixMode | None = None,
+    preset: str | None = None,
+    skip_distance_matrix: bool | None = None,
     parallel_heom: bool = False,
     heom_n_jobs: int = 1,
     progress_callback: Callable[[str], None] | None = None,
@@ -416,12 +505,22 @@ def compute_pycol_metrics(
     for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         os.environ.setdefault(_k, "1")
 
+    if matrix_mode is None:
+        if skip_distance_matrix is True:
+            mode: PycolMatrixMode = "skip"
+        elif skip_distance_matrix is False:
+            mode = resolve_pycol_matrix_mode(selected_metrics, preset=preset)
+        else:
+            mode = resolve_pycol_matrix_mode(selected_metrics, preset=preset)
+    else:
+        mode = matrix_mode
+
     no_dist_metrics, need_dist_metrics = partition_pycol_metrics(selected_metrics)
-    omitted_need_dist = list(need_dist_metrics) if skip_distance_matrix else []
-    if skip_distance_matrix:
+    omitted_need_dist = list(need_dist_metrics) if mode == "skip" else []
+    if mode == "skip":
         need_dist_metrics = []
 
-    out: dict[str, Any] = {}
+    out: dict[str, Any] = {"pycol_matrix_mode": mode}
     if omitted_need_dist:
         out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
 
@@ -429,7 +528,7 @@ def compute_pycol_metrics(
         if progress_callback is not None:
             progress_callback("__init__")
         comp_fast = build_pycol_complexity(
-            x, y, skip_distance_matrix=True, parallel_heom=False, heom_n_jobs=heom_n_jobs
+            x, y, matrix_mode="skip", parallel_heom=False, heom_n_jobs=heom_n_jobs
         )
         for metric in no_dist_metrics:
             if progress_callback is not None:
@@ -438,18 +537,19 @@ def compute_pycol_metrics(
         out["pycol_distance_matrix_skipped"] = True
 
     if need_dist_metrics:
-        # One HEOM build → one Complexity shell → all distance metrics read dist_matrix.
         if progress_callback is not None:
             progress_callback("__init_dist__")
         comp_dist = build_pycol_complexity(
             x,
             y,
-            skip_distance_matrix=False,
+            matrix_mode=mode,
             parallel_heom=parallel_heom,
             heom_n_jobs=heom_n_jobs,
         )
         if parallel_heom:
             out["pycol_heom_parallel"] = True
+        if mode == "dist":
+            out["pycol_heom_unnorm_skipped"] = True
         for metric in need_dist_metrics:
             if progress_callback is not None:
                 progress_callback(metric)

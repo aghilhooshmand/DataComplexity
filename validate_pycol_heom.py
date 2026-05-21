@@ -118,7 +118,21 @@ def run_validation(
     print(f"HEOM matrix validation  n={n:,}  features={p}  meta={meta}")
 
     dist_native, unnorm_native = _native_heom_matrices(x_f, meta)
-    dist_fast, unnorm_fast = build_heom_distance_matrices(x_f, meta, n_jobs=1)
+    dist_fast, unnorm_fast = build_heom_distance_matrices(
+        x_f, meta, n_jobs=1, compute_unnorm=True
+    )
+    dist_only, unnorm_empty = build_heom_distance_matrices(
+        x_f, meta, n_jobs=1, compute_unnorm=False
+    )
+    ok_dist_only, _ = _matrix_diff_report(
+        "dist_matrix (dist-only build vs full)", dist_native, dist_only, atol=atol
+    )
+    if unnorm_empty.size != 0:
+        print("  unnorm skipped: FAIL  expected empty (0,0) matrix")
+        ok_unnorm_skip = False
+    else:
+        print("  unnorm skipped: PASS  empty (0,0) stored")
+        ok_unnorm_skip = True
 
     ok_dist, _ = _matrix_diff_report("dist_matrix", dist_native, dist_fast, atol=atol)
     ok_unnorm, _ = _matrix_diff_report(
@@ -139,7 +153,7 @@ def run_validation(
         )
         ok_parallel = ok_p1 and ok_p2
 
-    return ok_dist and ok_unnorm and ok_parallel
+    return ok_dist and ok_unnorm and ok_dist_only and ok_unnorm_skip and ok_parallel
 
 
 def main(argv: list[str] | None = None) -> int:

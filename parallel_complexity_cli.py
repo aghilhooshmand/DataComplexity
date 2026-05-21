@@ -13,13 +13,15 @@ import pandas as pd
 
 from complexity_core import (
     MISSING_VALUE_STRATEGIES,
+    PYCOL_METRICS_NEED_UNNORM,
     PYCOL_METRICS_NO_DISTANCE,
+    PycolMatrixMode,
     build_pycol_complexity,
     compute_pycol_metrics,
     get_all_pymfe_complexity_metrics,
     parse_pycol_metrics_selection,
     partition_pycol_metrics,
-    resolve_pycol_skip_distance_matrix,
+    resolve_pycol_matrix_mode,
     prepare_xy,
     subsample_xy_for_complexity,
 )
@@ -83,19 +85,27 @@ def load_dataset(source: str, ref: str) -> tuple[pd.DataFrame, str]:
     raise ValueError("source must be one of: csv, uci, openml")
 
 
+def _pycol_matrix_mode_for_metric(metric: str, run_mode: PycolMatrixMode) -> PycolMatrixMode:
+    if metric in PYCOL_METRICS_NO_DISTANCE:
+        return "skip"
+    if metric in PYCOL_METRICS_NEED_UNNORM:
+        return "both"
+    return "both" if run_mode == "both" else "dist"
+
+
 def pycol_metric_job(
-    args: tuple[np.ndarray, np.ndarray, str, bool, int],
+    args: tuple[np.ndarray, np.ndarray, str, bool, int, PycolMatrixMode],
 ) -> tuple[str, Any]:
-    x, y, metric, parallel_heom, heom_n_jobs = args
+    x, y, metric, parallel_heom, heom_n_jobs, run_mode = args
 
     key = f"pycol_{metric}"
-    needs_dist = metric not in PYCOL_METRICS_NO_DISTANCE
+    mode = _pycol_matrix_mode_for_metric(metric, run_mode)
     try:
         comp = build_pycol_complexity(
             x,
             y,
-            skip_distance_matrix=not needs_dist,
-            parallel_heom=parallel_heom and needs_dist,
+            matrix_mode=mode,
+            parallel_heom=parallel_heom and mode != "skip",
             heom_n_jobs=heom_n_jobs,
         )
         if not hasattr(comp, metric):
@@ -158,13 +168,16 @@ def run_parallel_jobs(
     desc: str,
     pycol_parallel_heom: bool = False,
     pycol_heom_n_jobs: int = 1,
+    pycol_matrix_mode: PycolMatrixMode = "dist",
 ) -> dict[str, Any]:
     if not metrics:
         return {}
     if library == "pycol":
         worker: Callable[..., tuple[str, Any]] = pycol_metric_job
+        run_mode: PycolMatrixMode = pycol_matrix_mode
         inputs = [
-            (x, y, m, bool(pycol_parallel_heom), int(pycol_heom_n_jobs)) for m in metrics
+            (x, y, m, bool(pycol_parallel_heom), int(pycol_heom_n_jobs), run_mode)
+            for m in metrics
         ]
     else:
         worker = pymfe_metric_job
@@ -330,12 +343,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--pycol-distance-matrix",
-        choices=("skip", "build"),
-        default="skip",
+        choices=("skip", "dist", "both", "auto", "build"),
+        default="auto",
         help=(
-            "PyCol n×n HEOM distance matrix (default: skip). skip = only metrics without "
-            "pairwise distances (F1–F4, F1v, input_noise, purity); other selected metrics "
-            "are omitted. build = compute distance-based metrics when selected."
+            "PyCol HEOM RAM tier (default: auto from preset/metrics). "
+            "skip = no matrix; dist = normalized dist_matrix only (~half RAM vs both); "
+            "both = dist + unnorm (T1, NSG, ICSV); auto = cheap_minimal→skip, cheap→dist, "
+            "expensive→both; custom→infer from metric names. Legacy build = auto."
         ),
     )
     parser.add_argument(
@@ -355,9 +369,6 @@ def main() -> None:
     args = parser.parse_args()
 
     run_pycol = args.library in ("pycol", "both")
-    pycol_skip_dist = False
-    if run_pycol:
-        pycol_skip_dist = resolve_pycol_skip_distance_matrix(args.pycol_distance_matrix)
     if run_pycol:
         pycol_arg_chk = (
             args.metrics.strip().lower() if args.library == "pycol" else args.pycol_metrics.strip().lower()
@@ -432,17 +443,25 @@ def main() -> None:
             pycol_arg, custom_metrics=args.pycol_custom_metrics
         )
         result["pycol_metrics_preset"] = pycol_preset or "custom"
-        result["pycol_skip_distance_matrix"] = pycol_skip_dist
+        pycol_matrix_mode = resolve_pycol_matrix_mode(
+            pycol_metrics,
+            preset=pycol_preset,
+            override=args.pycol_distance_matrix,
+        )
+        result["pycol_matrix_mode"] = pycol_matrix_mode
+        result["pycol_skip_distance_matrix"] = pycol_matrix_mode == "skip"
         no_dist_part, need_dist_omitted = partition_pycol_metrics(pycol_metrics)
-        if pycol_skip_dist:
+        if pycol_matrix_mode == "skip":
             pycol_metrics_run = no_dist_part
             if need_dist_omitted and show_progress:
                 step(
-                    "      PyCol: skipping n×n matrix — omitting: "
+                    "      PyCol: Level A (skip) — omitting: "
                     + ", ".join(need_dist_omitted)
                 )
         else:
             pycol_metrics_run = pycol_metrics
+            if show_progress:
+                step(f"      PyCol: HEOM tier `{pycol_matrix_mode}` for distance metrics.")
         n_pycol = int(x_met.shape[0])
         use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
         if use_sequential_pycol:
@@ -466,8 +485,10 @@ def main() -> None:
                     x_met,
                     y_met,
                     pycol_metrics_run,
-                    skip_distance_matrix=pycol_skip_dist,
-                    parallel_heom=bool(args.pycol_parallel_heom) and not pycol_skip_dist,
+                    matrix_mode=pycol_matrix_mode,
+                    preset=pycol_preset,
+                    parallel_heom=bool(args.pycol_parallel_heom)
+                    and pycol_matrix_mode != "skip",
                     heom_n_jobs=n_jobs,
                     progress_callback=prog_cb,
                 )
@@ -484,8 +505,10 @@ def main() -> None:
                     n_jobs,
                     show_progress=show_progress,
                     desc="pycol",
-                    pycol_parallel_heom=bool(args.pycol_parallel_heom) and not pycol_skip_dist,
+                    pycol_parallel_heom=bool(args.pycol_parallel_heom)
+                    and pycol_matrix_mode != "skip",
                     pycol_heom_n_jobs=n_jobs,
+                    pycol_matrix_mode=pycol_matrix_mode,
                 )
             )
         step("      PyCol done.")

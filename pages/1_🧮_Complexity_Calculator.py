@@ -319,7 +319,7 @@ if df is not None:
                     st_status.write(
                         f"**PyCol:** {len(selected_by_library.get('pycol', []))} metric(s); "
                         f"rows for PyCol: **{yc.shape[0]}** (full cleaned: {y.shape[0]}); "
-                        f"distance matrix: **{'skip' if metric_config.pycol_skip_distance_matrix else 'build'}**."
+                        f"HEOM tier: **{metric_config.pycol_matrix_mode}**."
                     )
 
                     def _pycol_prog(m: str) -> None:
@@ -335,7 +335,8 @@ if df is not None:
                             xc,
                             yc,
                             selected_by_library.get("pycol", []),
-                            skip_distance_matrix=metric_config.pycol_skip_distance_matrix,
+                            matrix_mode=metric_config.pycol_matrix_mode,
+                            preset=metric_config.pycol_preset,
                             parallel_heom=metric_config.pycol_parallel_heom,
                             heom_n_jobs=4,
                             progress_callback=_pycol_prog,
