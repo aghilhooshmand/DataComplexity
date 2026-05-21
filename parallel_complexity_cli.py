@@ -229,6 +229,22 @@ def run_parallel_jobs(
     return {k: v for k, v in out}
 
 
+def _ensure_column_for_upsert(df: pd.DataFrame, col: str, sample_val: Any) -> None:
+    """Add a missing column with a dtype that accepts ``sample_val`` (e.g. str HEOM tier)."""
+    if col in df.columns:
+        if isinstance(sample_val, str) and pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = df[col].astype(object)
+        return
+    if isinstance(sample_val, bool):
+        df[col] = pd.Series([pd.NA] * len(df), dtype="boolean")
+    elif isinstance(sample_val, (int, float, np.integer, np.floating)) and not isinstance(
+        sample_val, bool
+    ):
+        df[col] = np.nan
+    else:
+        df[col] = None
+
+
 def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "dataset_name") -> pd.DataFrame:
     """
     Upsert one result row into output CSV.
@@ -254,8 +270,7 @@ def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "
     if mask.any():
         idx = existing.index[mask][0]
         for col, val in result.items():
-            if col not in existing.columns:
-                existing[col] = np.nan
+            _ensure_column_for_upsert(existing, col, val)
             existing.at[idx, col] = val
         return existing
 
