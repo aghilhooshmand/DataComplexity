@@ -1,5 +1,4 @@
 .venv/
 __pycache__/
 *.pyc
-pmlb_DS/
 .streamlit/secrets.toml
