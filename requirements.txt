@@ -8,3 +8,6 @@ pymfe>=0.4.2
 openml>=0.14.2
 ucimlrepo>=0.0.7
 tqdm>=4.66.0
+pmlb>=1.0.0
+PyYAML>=6.0.0
+requests>=2.31.0

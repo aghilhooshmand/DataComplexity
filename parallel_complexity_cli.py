@@ -50,7 +50,7 @@ def load_dataset(source: str, ref: str) -> tuple[pd.DataFrame, str]:
         p = Path(ref)
         if not p.exists():
             raise FileNotFoundError(f"CSV file not found: {p}")
-        return pd.read_csv(p), p.stem
+        return pd.read_csv(p), p.name
 
     if source_l == "uci":
         from ucimlrepo import fetch_ucirepo
@@ -340,6 +340,15 @@ def main() -> None:
     )
     parser.add_argument("--output-csv", default="parallel_dataset_complexity.csv")
     parser.add_argument(
+        "--upsert-key",
+        default="dataset_name",
+        choices=("dataset_name", "dataset_file"),
+        help=(
+            "Column used to merge rows in --output-csv. "
+            "Use dataset_file when appending to pmlb_DS/datasets_complexity_summary.csv (values like iris.csv)."
+        ),
+    )
+    parser.add_argument(
         "--complexity-max-rows",
         type=int,
         default=0,
@@ -445,6 +454,10 @@ def main() -> None:
         "n_classes": int(np.unique(y).size),
         "n_jobs": int(max(1, args.n_jobs)),
     }
+    if args.source == "csv":
+        result["dataset_file"] = Path(args.ref).name
+    if args.upsert_key == "dataset_file" and "dataset_file" not in result:
+        result["dataset_file"] = dataset_name if str(dataset_name).endswith(".csv") else f"{dataset_name}.csv"
     if int(args.complexity_max_rows) > 0:
         result["complexity_max_rows"] = int(args.complexity_max_rows)
     if cmeta.get("complexity_subsampled"):
@@ -553,7 +566,7 @@ def main() -> None:
     out_path = Path(args.output_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     phase("Merging and writing CSV …")
-    merged_df = upsert_result_row(out_path, result, key_col="dataset_name")
+    merged_df = upsert_result_row(out_path, result, key_col=args.upsert_key)
     merged_df.to_csv(out_path, index=False)
     print(f"Saved: {out_path}", file=sys.stderr if show_progress else sys.stdout, flush=True)
     print(f"Rows: {len(merged_df)}", file=sys.stderr if show_progress else sys.stdout, flush=True)

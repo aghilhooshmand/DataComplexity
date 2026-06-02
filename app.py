@@ -58,7 +58,11 @@ st.markdown(
 - **`Metric Reference`**  
   PyCol overlap taxonomy (from [pycol](https://github.com/miriamspsantos/pycol/blob/doc/README.md)), **illustration PDFs**, **sample datasets** (add to comparison), and app metric tables.
 
-**Command-line:** use `parallel_complexity_cli.py` with `--missing-values` for the same strategies on a server (see `README.md`).
+- **`PMLB Benchmark`**  
+  Browse locally downloaded [PMLB](https://github.com/EpistasisLab/pmlb) classification datasets (`pmlb_DS/`), view README/metadata, compare summaries, run complexity metrics and t-SNE.
+
+**Command-line:** use `parallel_complexity_cli.py` with `--missing-values` for the same strategies on a server (see `README.md`).  
+**PMLB batch download:** `python download_pmlb_datasets.py` (classification, &lt; 21k instances).
 """
 )
 

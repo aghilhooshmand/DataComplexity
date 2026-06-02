@@ -22,7 +22,9 @@ LIBRARY="pycol"                    # pycol | pymfe | both
 # CLI uses min(N_JOBS, #metrics, CPU count). 24–32 is enough on an 82-core box; avoid N_JOBS=82.
 N_JOBS="24"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
-OUTPUT_CSV="${SCRIPT_DIR}/results/batch_parallel_complexity.csv"
+# PMLB batch: append into existing PyCol summary (dataset_file column).
+OUTPUT_CSV="${SCRIPT_DIR}/pmlb_DS/datasets_complexity_summary.csv"
+UPSERT_KEY="dataset_file"        # dataset_name | dataset_file (must match OUTPUT_CSV columns)
 
 # Default max rows per dataset (0 = all rows after cleaning).
 COMPLEXITY_MAX_ROWS="0"
@@ -44,7 +46,7 @@ PYCOL_PARALLEL_METRICS="0"
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
 # Active setting below: "cheap" → ~26 metrics, HEOM tier from PYCOL_DISTANCE_MATRIX=auto → one matrix max.
-PYCOL_METRICS_ARG="custom"
+PYCOL_METRICS_ARG="cheap_minimal"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
@@ -86,22 +88,82 @@ DRY_RUN="${DRY_RUN:-0}"
 # Dataset list: one entry per line inside the array.
 # Format:   source|ref|label_column|[max_rows]
 #   source = uci | openml | csv
-#   ref     = UCI/OpenML URL or id, OR absolute path to CSV when source=csv
-#   label_column = target column name (for uci/openml from this CLI, use "target")
-#   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only (e.g. CDC on 125 GiB)
+#   ref     = UCI/OpenML URL or id, OR path to CSV when source=csv (${SCRIPT_DIR}/pmlb_DS/…)
+#   label_column = target column name (PMLB encoded CSVs use "target")
+#   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only
 # Use | as separator (do not use | inside URLs).
+#
+# Pending list (not yet in datasets_complexity_summary.csv): pmlb_DS/pending_pycol_datasets.txt
+# Already computed: 61 / 121 as of last sync.
 # ---------------------------------------------------------------------------
 DATASETS=(
-  "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
-  "uci|https://archive.ics.uci.edu/dataset/2/adult|target"
-  "uci|https://archive.ics.uci.edu/dataset/222/bank+marketing|target"
-  "uci|https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping|target"
-  "uci|https://archive.ics.uci.edu/dataset/186/wine+quality|target"
-  "uci|https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators|target"
-  "uci|https://archive.ics.uci.edu/dataset/848/secondary+mushroom+dataset|target"
-  "uci|https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume|target"
-  # Example local CSV:
-  # "csv|/absolute/path/to/data.csv|class"
+  "csv|${SCRIPT_DIR}/pmlb_DS/GAMETES_Epistasis_2_Way_1000atts_0.4H_EDM_1_EDM_1_1.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/agaricus_lepiota.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/allbp.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/allhyper.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/allhypo.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/allrep.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_authorship.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_dmft.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_germangss.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_happiness.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/ann_thyroid.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/balance_scale.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/calendarDOW.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/car_evaluation.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/cars.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/churn.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/clean2.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/cloud.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/coil2000.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/collins.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/confidence.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/dermatology.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/dna.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/ecoli.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/flags.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/hayes_roth.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/iris.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/led24.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/led7.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/letter.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/lymphography.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/magic.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_factors.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_fourier.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_karhunen.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_morphological.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_pixel.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_zernike.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/movement_libras.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mushroom.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/new_thyroid.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/nursery.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/optdigits.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/page_blocks.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/parity5_5.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/pendigits.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/penguins.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/ring.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/satimage.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/schizo.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/segmentation.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/soybean.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/spambase.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/splice.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/tae.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/texture.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/twonorm.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/vehicle.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/vowel.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/waveform_21.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/waveform_40.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_red.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_white.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/wine_recognition.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/yeast.csv|target"
+  # Legacy UCI examples:
+  # "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
 )
 
 # ---------------------------------------------------------------------------
@@ -157,6 +219,7 @@ print_cmd() {
     --n-jobs "${N_JOBS}"
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
+    --upsert-key "${UPSERT_KEY}"
   )
   append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
@@ -190,6 +253,7 @@ run_one() {
     --n-jobs "${N_JOBS}"
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
+    --upsert-key "${UPSERT_KEY}"
   )
   append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
