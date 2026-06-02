@@ -13,8 +13,30 @@ import yaml
 from complexity_core import prepare_xy
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_SUMMARY_TSV = PROJECT_ROOT / "all_summary_stats_PMLB_benchmarck_dataset.tsv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "pmlb_DS"
+SUMMARY_TSV_NAME = "all_summary_stats_PMLB_benchmarck_dataset.tsv"
+
+
+def resolve_summary_tsv(path: Path | str | None = None) -> Path:
+    """Summary TSV: explicit path, then pmlb_DS/, then project root (legacy)."""
+    if path is not None:
+        p = Path(path)
+        if p.is_file():
+            return p
+        raise FileNotFoundError(f"PMLB summary TSV not found: {p}")
+    candidates = (
+        DEFAULT_OUTPUT_DIR / SUMMARY_TSV_NAME,
+        PROJECT_ROOT / SUMMARY_TSV_NAME,
+    )
+    for p in candidates:
+        if p.is_file():
+            return p
+    raise FileNotFoundError(
+        f"PMLB summary TSV not found. Expected one of: {', '.join(str(c) for c in candidates)}"
+    )
+
+
+DEFAULT_SUMMARY_TSV = DEFAULT_OUTPUT_DIR / SUMMARY_TSV_NAME
 PMLB_DATASETS_BASE = (
     "https://raw.githubusercontent.com/EpistasisLab/penn-ml-benchmarks/master/datasets"
 )
@@ -26,7 +48,7 @@ def sanitize_dataset_filename(name: str) -> str:
 
 
 def load_summary_table(path: Path | str | None = None) -> pd.DataFrame:
-    p = Path(path) if path is not None else DEFAULT_SUMMARY_TSV
+    p = resolve_summary_tsv(path)
     return pd.read_csv(p, sep="\t")
 
 
