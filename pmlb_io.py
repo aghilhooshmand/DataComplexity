@@ -89,7 +89,9 @@ def output_paths(output_dir: Path | str) -> dict[str, Path]:
         "metadata": root / "metadata",
         "manifest": root / "manifest.tsv",
         "status": root / "download_status.json",
-        "complexity_cache": root / "complexity_metrics.csv",
+        "complexity_summary": root / "datasets_complexity_summary.csv",
+        # legacy alias
+        "complexity_cache": root / "datasets_complexity_summary.csv",
     }
 
 
@@ -376,3 +378,131 @@ def append_manifest_row(manifest_path: Path, row: dict[str, Any]) -> None:
 def write_download_status(status_path: Path, payload: dict[str, Any]) -> None:
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def dataset_name_to_file_key(dataset_name: str) -> str:
+    """Map manifest/selectbox name → ``datasets_complexity_summary`` ``dataset_file`` key."""
+    name = str(dataset_name).strip()
+    return name if name.endswith(".csv") else f"{name}.csv"
+
+
+def load_complexity_summary(output_dir: Path | str | None = None) -> pd.DataFrame:
+    path = output_paths(output_dir or DEFAULT_OUTPUT_DIR)["complexity_summary"]
+    if not path.is_file():
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+
+def pycol_metric_columns(df: pd.DataFrame) -> list[str]:
+    return sorted(c for c in df.columns if str(c).startswith("pycol_"))
+
+
+def pymfe_metric_columns(df: pd.DataFrame) -> list[str]:
+    return sorted(c for c in df.columns if str(c).startswith("pymfe_"))
+
+
+def row_has_values(row: pd.Series, columns: list[str]) -> bool:
+    if not columns:
+        return False
+    present = [c for c in columns if c in row.index]
+    if not present:
+        return False
+    return bool(pd.to_numeric(row[present], errors="coerce").notna().any())
+
+
+def lookup_complexity_row(summary: pd.DataFrame, dataset_name: str) -> pd.Series | None:
+    if summary.empty:
+        return None
+    file_key = dataset_name_to_file_key(dataset_name)
+    if "dataset_file" in summary.columns:
+        m = summary[summary["dataset_file"].astype(str) == file_key]
+        if not m.empty:
+            return m.iloc[0]
+    stem = file_key.removesuffix(".csv")
+    for col in ("dataset_name", "dataset"):
+        if col in summary.columns:
+            m = summary[summary[col].astype(str).isin({stem, file_key})]
+            if not m.empty:
+                return m.iloc[0]
+    return None
+
+
+def datasets_with_pycol(summary: pd.DataFrame) -> set[str]:
+    """Set of dataset_file keys that have at least one non-null PyCol metric."""
+    if summary.empty or "dataset_file" not in summary.columns:
+        return set()
+    pycol_cols = pycol_metric_columns(summary)
+    if not pycol_cols:
+        return set()
+    mask = summary[pycol_cols].apply(pd.to_numeric, errors="coerce").notna().any(axis=1)
+    return set(summary.loc[mask, "dataset_file"].astype(str))
+
+
+def pycol_keys_for_metric_names(names: list[str]) -> list[str]:
+    out: list[str] = []
+    for n in names:
+        n = str(n).strip()
+        if not n:
+            continue
+        out.append(n if n.startswith("pycol_") else f"pycol_{n}")
+    return out
+
+
+def stored_metrics_table(row: pd.Series, metric_keys: list[str] | None = None) -> pd.DataFrame:
+    """Metric / value table from a summary row."""
+    keys = metric_keys or pycol_metric_columns(row.to_frame().T)
+    rows: list[dict[str, str]] = []
+    for key in keys:
+        if key not in row.index:
+            continue
+        val = row[key]
+        if pd.isna(val) or (isinstance(val, str) and not str(val).strip()):
+            continue
+        label = key.replace("pycol_", "").replace("pymfe_", "")
+        rows.append({"metric": label, "column": key, "value": val})
+    return pd.DataFrame(rows)
+
+
+def missing_pycol_keys(row: pd.Series | None, requested_metrics: list[str]) -> list[str]:
+    """PyCol column names not present or null in ``row``."""
+    keys = pycol_keys_for_metric_names(requested_metrics)
+    if row is None:
+        return keys
+    missing: list[str] = []
+    for k in keys:
+        if k not in row.index or pd.isna(row[k]):
+            missing.append(k)
+    return missing
+
+
+def merge_metric_row(
+    base: dict[str, Any] | pd.Series | None,
+    computed: dict[str, Any],
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if base is not None:
+        if isinstance(base, pd.Series):
+            out = {k: base[k] for k in base.index}
+        else:
+            out = dict(base)
+    out.update(computed)
+    return out
+
+
+def save_complexity_result_row(
+    result: dict[str, Any],
+    output_dir: Path | str | None = None,
+    *,
+    upsert_key: str = "dataset_file",
+) -> Path:
+    from parallel_complexity_cli import upsert_result_row
+
+    paths = output_paths(output_dir or DEFAULT_OUTPUT_DIR)
+    path = paths["complexity_summary"]
+    if upsert_key == "dataset_file" and "dataset_file" not in result:
+        name = result.get("dataset_name") or result.get("dataset", "")
+        result["dataset_file"] = dataset_name_to_file_key(str(name))
+    merged = upsert_result_row(path, result, key_col=upsert_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(path, index=False)
+    return path
