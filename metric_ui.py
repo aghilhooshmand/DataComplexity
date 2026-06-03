@@ -40,6 +40,25 @@ PYCOL_PRESET_ORDER: tuple[str, ...] = (
 )
 
 
+def metric_display_name(name: str, library: str | None = None) -> str:
+    """User-facing label with ``pycol_`` or ``pymfe_`` prefix (CSV / chart column style)."""
+    n = str(name).strip()
+    if n.startswith("pycol_") or n.startswith("pymfe_"):
+        return n
+    lib = (library or "").strip().lower()
+    if lib == "pymfe":
+        return f"pymfe_{n}"
+    if lib == "pycol":
+        return f"pycol_{n}"
+    if n and n[0].islower():
+        return f"pymfe_{n}"
+    return f"pycol_{n}"
+
+
+def format_metrics_display_list(names: list[str], library: str) -> str:
+    return ", ".join(metric_display_name(m, library) for m in names)
+
+
 @dataclass
 class MetricSelectionConfig:
     """Metric lists and PyCol run options (aligned with parallel_complexity_cli)."""
@@ -131,6 +150,7 @@ def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
             "Custom PyCol metrics",
             options=all_m,
             default=list(PYCOL_METRICS_CHEAP_MINIMAL),
+            format_func=lambda m: metric_display_name(m, "pycol"),
             key=f"{key_prefix}_pycol_custom_metrics",
         )
     else:
@@ -141,7 +161,7 @@ def render_pycol_preset_metrics(*, key_prefix: str) -> tuple[list[str], str]:
             f"({PYCOL_MATRIX_MODE_LABELS.get(tier, tier)})"
         )
         with st.expander("Metric names in this preset", expanded=(len(metrics) <= 12)):
-            st.write(", ".join(metrics))
+            st.write(format_metrics_display_list(metrics, "pycol"))
     return metrics, preset
 
 
@@ -384,6 +404,7 @@ def render_cost_tier_metrics(library: str, *, key_prefix: str) -> list[str]:
             f"{library}: metrics in **cheap** pool",
             options=cheap_pool,
             default=cheap_pool,
+            format_func=lambda m: metric_display_name(m, library),
             key=f"{key_prefix}_{library}_cheap_only",
         )
 
@@ -395,6 +416,7 @@ def render_cost_tier_metrics(library: str, *, key_prefix: str) -> list[str]:
             f"{library}: metrics in **expensive** pool",
             options=exp_pool,
             default=exp_pool,
+            format_func=lambda m: metric_display_name(m, library),
             key=f"{key_prefix}_{library}_exp_only",
         )
 
@@ -403,12 +425,14 @@ def render_cost_tier_metrics(library: str, *, key_prefix: str) -> list[str]:
         f"{library}: **cheap** pool",
         options=cheap_pool,
         default=cheap_pool,
+        format_func=lambda m: metric_display_name(m, library),
         key=f"{key_prefix}_{library}_cheap_pick",
     )
     e = st.multiselect(
         f"{library}: **expensive** pool",
         options=exp_pool,
         default=exp_pool,
+        format_func=lambda m: metric_display_name(m, library),
         key=f"{key_prefix}_{library}_exp_pick",
     )
     return sorted(set(c) | set(e))
@@ -441,7 +465,7 @@ def render_metric_selection_block(
         st.markdown(METRIC_COST_HEURISTIC_CAPTION)
         st.caption(
             "Metrics without pairwise distances: "
-            + ", ".join(sorted(PYCOL_METRICS_NO_DISTANCE))
+            + format_metrics_display_list(sorted(PYCOL_METRICS_NO_DISTANCE), "pycol")
         )
 
     for lib in selected_libraries:

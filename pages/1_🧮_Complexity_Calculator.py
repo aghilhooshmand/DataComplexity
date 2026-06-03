@@ -17,7 +17,7 @@ from complexity_core import (
     run_tsne,
     subsample_xy_for_complexity,
 )
-from metric_ui import render_metric_selection_block
+from metric_ui import metric_display_name, render_metric_selection_block
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
 from results_export import render_save_results_section
 
@@ -145,11 +145,12 @@ def render_metric_docs(library: str, selected: list[str]) -> None:
         return
     for metric in selected:
         doc = docs.get(metric)
+        label = metric_display_name(metric, library)
         if doc is None:
-            st.markdown(f"**{metric}**")
+            st.markdown(f"**{label}**")
             st.caption("No local description card. This metric is still computed and included in output.")
             continue
-        st.markdown(f"**{doc.title}**")
+        st.markdown(f"**{label}** — {doc.title}")
         st.caption(doc.description)
         st.caption(f"Reference: {doc.reference}")
         st.divider()
@@ -332,7 +333,7 @@ if df is not None:
                         elif m == "__init_dist__":
                             st_status.write("**PyCol:** building distance matrix (HEOM)…")
                         else:
-                            st_status.write(f"**PyCol:** computing `{m}` …")
+                            st_status.write(f"**PyCol:** computing `{metric_display_name(m, 'pycol')}` …")
 
                     result.update(
                         compute_pycol_metrics(

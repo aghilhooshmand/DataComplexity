@@ -17,6 +17,7 @@ from complexity_core import (
     subsample_xy_for_complexity,
 )
 from metric_ui import (
+    format_metrics_display_list,
     infer_comparison_metric_columns,
     melt_metrics_for_comparison,
     prepare_wide_df_for_metric_charts,
@@ -86,7 +87,7 @@ def _render_pycol_metrics_panel(
                     "Metrics to show",
                     options=all_stored["column"].tolist(),
                     default=all_stored["column"].tolist(),
-                    format_func=lambda c: str(c).replace("pycol_", ""),
+                    format_func=str,
                     key=f"{key_prefix}_stored_pick_{dataset_name}",
                 )
                 view = all_stored[all_stored["column"].isin(pick)] if pick else all_stored
@@ -145,7 +146,7 @@ def _render_pycol_metrics_panel(
         if missing_keys:
             st.caption(
                 "Will compute **"
-                + ", ".join(k.replace("pycol_", "") for k in missing_keys)
+                + ", ".join(missing_keys)
                 + "** (already stored metrics are skipped)."
             )
         else:

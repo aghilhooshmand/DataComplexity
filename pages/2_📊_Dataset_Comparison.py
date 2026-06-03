@@ -21,6 +21,7 @@ from metric_ui import (
     MetricSelectionConfig,
     infer_comparison_metric_columns,
     melt_metrics_for_comparison,
+    metric_display_name,
     prepare_wide_df_for_metric_charts,
     render_metric_selection_block,
     render_per_metric_bar_charts,
@@ -333,7 +334,7 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                     else:
                         progress.progress(
                             min(99, int((_i - 1) / total * 100 + 5)),
-                            text=f"[{_i}/{total}] `{_name}`: PyCol `{metric}` …",
+                            text=f"[{_i}/{total}] `{_name}`: {metric_display_name(metric, 'pycol')} …",
                         )
 
                 pcb = _pycol_cb if "pycol" in selected_libraries else None

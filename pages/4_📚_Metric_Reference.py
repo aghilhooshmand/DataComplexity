@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
+from metric_ui import metric_display_name
 from pycol_reference import (
     PYCOL_AIRE_PAPER,
     PYCOL_DATASET_DIR,
@@ -20,11 +21,11 @@ from pycol_reference import (
 from pycol_reference import figure_path as pycol_figure_path
 
 
-def docs_to_df(items: dict) -> pd.DataFrame:
+def docs_to_df(items: dict, library: str) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "metric": doc.key,
+                "metric": metric_display_name(doc.key, library),
                 "title": doc.title,
                 "description": doc.description,
                 "reference": doc.reference,
@@ -104,9 +105,9 @@ with tab_metrics:
     st.caption("Metrics wired in this app (not the full PyCol catalog).")
     sub_pycol, sub_pymfe = st.tabs(["pycol", "pymfe"])
     with sub_pycol:
-        st.dataframe(docs_to_df(PYCOL_METRICS), use_container_width=True, hide_index=True)
+        st.dataframe(docs_to_df(PYCOL_METRICS, "pycol"), use_container_width=True, hide_index=True)
     with sub_pymfe:
-        st.dataframe(docs_to_df(PYMFE_COMPLEXITY_METRICS), use_container_width=True, hide_index=True)
+        st.dataframe(docs_to_df(PYMFE_COMPLEXITY_METRICS, "pymfe"), use_container_width=True, hide_index=True)
 
 with tab_figures:
     st.markdown(

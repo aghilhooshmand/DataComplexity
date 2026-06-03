@@ -458,8 +458,7 @@ def stored_metrics_table(row: pd.Series, metric_keys: list[str] | None = None) -
         val = row[key]
         if pd.isna(val) or (isinstance(val, str) and not str(val).strip()):
             continue
-        label = key.replace("pycol_", "").replace("pymfe_", "")
-        rows.append({"metric": label, "column": key, "value": val})
+        rows.append({"metric": key, "column": key, "value": val})
     return pd.DataFrame(rows)
 
 
