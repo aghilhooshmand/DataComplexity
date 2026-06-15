@@ -20,7 +20,7 @@ fi
 LIBRARY="pycol"                    # pycol | pymfe | both
 # Worker cap for HEOM rows (--pycol-parallel-heom) and PyCol metric pool (--pycol-parallel-metrics).
 # CLI uses min(N_JOBS, #metrics, CPU count). 24–32 is enough on an 82-core box; avoid N_JOBS=82.
-N_JOBS="24"
+N_JOBS="63"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
 # Append/upsert into results summary (dataset_file column).
 OUTPUT_CSV="${SCRIPT_DIR}/results/datasets_complexity_summary.csv"
@@ -46,7 +46,7 @@ PYCOL_PARALLEL_METRICS="0"
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
 # Active setting below: "cheap" → ~26 metrics, HEOM tier from PYCOL_DISTANCE_MATRIX=auto → one matrix max.
-PYCOL_METRICS_ARG="cheap_minimal"
+PYCOL_METRICS_ARG="all"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
