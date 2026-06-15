@@ -9,3 +9,43 @@ Columns: 53
 ========== [2/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/agaricus_lepiota.csv ==========
 /home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
   f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 63
+Columns: 55
+
+========== [3/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/allbp.csv ==========
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 64
+Columns: 55
+
+========== [4/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/allhyper.csv ==========
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: divide by zero encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 65
+Columns: 55
+
+========== [5/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/allhypo.csv ==========
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 66
+Columns: 55
+
+========== [6/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/allrep.csv ==========
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
