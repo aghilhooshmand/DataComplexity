@@ -49,3 +49,60 @@ Columns: 55
   n_d = numer/denom
 /home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
   f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 67
+Columns: 55
+
+========== [7/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/analcatdata_authorship.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 68
+Columns: 55
+
+========== [8/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/analcatdata_dmft.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 69
+Columns: 55
+
+========== [9/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/analcatdata_germangss.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 70
+Columns: 55
+
+========== [10/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/analcatdata_happiness.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 71
+Columns: 55
+
+========== [11/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/ann_thyroid.csv ==========
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2409: RuntimeWarning: invalid value encountered in divide
+  n_d = numer/denom
+/home/aghil/Documents/my document/limerick/projects/DataComplexity/.venv/lib/python3.13/site-packages/pycol_complexity/complexity.py:2286: RuntimeWarning: invalid value encountered in divide
+  f1 = ((avg_c1-avg_c2)**2)/(std_c1**2+std_c2**2)
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 72
+Columns: 55
+
+========== [12/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/balance_scale.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 73
+Columns: 55
+
+========== [13/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/calendarDOW.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 74
+Columns: 55
+
+========== [14/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/car_evaluation.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 75
+Columns: 55
+
+========== [15/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/cars.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 76
+Columns: 55
+
+========== [16/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/churn.csv ==========
+Saved: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+Rows: 77
+Columns: 55
