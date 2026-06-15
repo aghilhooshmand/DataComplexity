@@ -1,0 +1,4 @@
+Datasets: 63  Output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+PyCol metrics: cheap_minimal  distance matrix: auto  parallel HEOM: 1  parallel metrics: 0  n_jobs: 24  max_rows(default): 0
+
+========== [1/63] csv  /home/aghil/Documents/my document/limerick/projects/DataComplexity/pmlb_DS/GAMETES_Epistasis_2_Way_1000atts_0.4H_EDM_1_EDM_1_1.csv ==========

@@ -40,7 +40,8 @@ from results_export import render_save_results_section
 
 
 @st.cache_data(show_spinner=False)
-def _cached_complexity_summary() -> pd.DataFrame:
+def _cached_complexity_summary(_summary_mtime_ns: int) -> pd.DataFrame:
+    """Cache keyed by file mtime so a restored or updated CSV is reloaded."""
     return load_complexity_summary(DEFAULT_OUTPUT_DIR)
 
 
@@ -110,12 +111,30 @@ if not paths["root"].is_dir() or not list(paths["root"].glob("*.csv")):
     )
     st.stop()
 
-complexity_summary = _cached_complexity_summary()
+summary_path = paths["complexity_summary"]
+if not summary_path.is_file():
+    st.error(
+        f"Missing PyCol summary file:\n\n`{summary_path}`\n\n"
+        "If you committed it earlier, restore from git:\n\n"
+        "```bash\ngit checkout HEAD -- pmlb_DS/datasets_complexity_summary.csv\n```\n\n"
+        "Otherwise run the batch on the server, then copy or commit that CSV."
+    )
+    st.stop()
+
+try:
+    summary_mtime_ns = summary_path.stat().st_mtime_ns
+except OSError:
+    summary_mtime_ns = 0
+
+complexity_summary = _cached_complexity_summary(summary_mtime_ns)
 if complexity_summary.empty:
     st.error(
-        "No `pmlb_DS/datasets_complexity_summary.csv` found. "
-        "Run the batch script to generate PyCol metrics first."
+        f"`{summary_path}` exists but pandas returned no rows. "
+        "Click **Rerun** in Streamlit (or restart the app) to clear a stale cache."
     )
+    if st.button("Reload complexity summary", key="pmlb_reload_summary"):
+        _cached_complexity_summary.clear()
+        st.rerun()
     st.stop()
 
 manifest = load_manifest(paths["root"])

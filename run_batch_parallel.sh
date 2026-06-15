@@ -22,8 +22,8 @@ LIBRARY="pycol"                    # pycol | pymfe | both
 # CLI uses min(N_JOBS, #metrics, CPU count). 24–32 is enough on an 82-core box; avoid N_JOBS=82.
 N_JOBS="24"
 MISSING_VALUES="impute_median"   # drop_rows | fill_zero | impute_median | impute_mean
-# PMLB batch: append into existing PyCol summary (dataset_file column).
-OUTPUT_CSV="${SCRIPT_DIR}/pmlb_DS/datasets_complexity_summary.csv"
+# Append/upsert into results summary (dataset_file column).
+OUTPUT_CSV="${SCRIPT_DIR}/results/datasets_complexity_summary.csv"
 UPSERT_KEY="dataset_file"        # dataset_name | dataset_file (must match OUTPUT_CSV columns)
 
 # Default max rows per dataset (0 = all rows after cleaning).
@@ -93,8 +93,8 @@ DRY_RUN="${DRY_RUN:-0}"
 #   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only
 # Use | as separator (do not use | inside URLs).
 #
-# Pending list (not yet in datasets_complexity_summary.csv): pmlb_DS/pending_pycol_datasets.txt
-# Already computed: 61 / 121 as of last sync.
+# Excludes datasets already in datasets_complexity_summary.csv (58 in pmlb_DS).
+# 63 datasets remain for batch runs.
 # ---------------------------------------------------------------------------
 DATASETS=(
   "csv|${SCRIPT_DIR}/pmlb_DS/GAMETES_Epistasis_2_Way_1000atts_0.4H_EDM_1_EDM_1_1.csv|target"
@@ -141,7 +141,6 @@ DATASETS=(
   "csv|${SCRIPT_DIR}/pmlb_DS/nursery.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/optdigits.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/page_blocks.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/parity5_5.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/pendigits.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/penguins.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/ring.csv|target"
@@ -160,7 +159,6 @@ DATASETS=(
   "csv|${SCRIPT_DIR}/pmlb_DS/waveform_40.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_red.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_white.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/wine_recognition.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/yeast.csv|target"
   # Legacy UCI examples:
   # "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
