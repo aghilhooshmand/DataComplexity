@@ -75,9 +75,11 @@ NO_PROGRESS="0"
 
 # CONTINUE_ON_ERROR: after a failed dataset
 #   "0" = stop the whole batch immediately
-#   "1" = print the error and continue with the next dataset
-# Override on the command line, e.g. CONTINUE_ON_ERROR=0 DRY_RUN=1 ./run_batch_parallel.sh
+#   "1" = log the error and continue with the next dataset (default for Hive/server)
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
+
+# Append per-dataset failures here (exit code + last stderr lines).
+FAILURE_LOG="${SCRIPT_DIR}/results/batch_failures.log"
 
 # DRY_RUN:
 #   "0" = really run parallel_complexity_cli.py for each line
@@ -93,55 +95,55 @@ DRY_RUN="${DRY_RUN:-0}"
 #   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only
 # Use | as separator (do not use | inside URLs).
 #
-# Hive batch progress (vs results/datasets_complexity_summary.csv): 18/63 done, 45 remain.
-# Remaining datasets only — upsert skips rows that already have pycol_F1.
+# Hive batch: 45 remain. Sorted smallest → largest (by rows, then features).
+# Upsert skips rows that already have pycol_F1.
 # ---------------------------------------------------------------------------
 DATASETS=(
-  "csv|${SCRIPT_DIR}/pmlb_DS/coil2000.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/collins.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/confidence.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/dermatology.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/dna.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/ecoli.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/flags.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/hayes_roth.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/iris.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/led24.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/led7.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/letter.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/lymphography.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/magic.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_factors.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_fourier.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_karhunen.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_morphological.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_pixel.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_zernike.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/movement_libras.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mushroom.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/new_thyroid.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/nursery.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/optdigits.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/page_blocks.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/pendigits.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/penguins.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/ring.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/satimage.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/schizo.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/segmentation.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/soybean.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/spambase.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/splice.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/iris.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/tae.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/texture.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/twonorm.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/hayes_roth.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/flags.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/new_thyroid.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/ecoli.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/penguins.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/schizo.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/movement_libras.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/dermatology.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/collins.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/soybean.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/vehicle.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/vowel.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/yeast.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_red.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_morphological.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_zernike.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_karhunen.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_fourier.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_factors.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_pixel.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/segmentation.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/dna.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/splice.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/led7.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/led24.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/spambase.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_white.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/waveform_21.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/waveform_40.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_red.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_white.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/yeast.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/page_blocks.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/texture.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/optdigits.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/satimage.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/ring.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/twonorm.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/mushroom.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/coil2000.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/pendigits.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/nursery.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/magic.csv|target"
+  "csv|${SCRIPT_DIR}/pmlb_DS/letter.csv|target"
   # Legacy UCI examples:
   # "uci|https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic|target"
 )
@@ -257,7 +259,12 @@ run_one() {
 }
 
 total="${#DATASETS[@]}"
+ok_count=0
+fail_count=0
+: >"${FAILURE_LOG}" 2>/dev/null || true
+
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
+echo "CONTINUE_ON_ERROR=${CONTINUE_ON_ERROR}  failures log: ${FAILURE_LOG}" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
   echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}  parallel metrics: ${PYCOL_PARALLEL_METRICS}  n_jobs: ${N_JOBS}  max_rows(default): ${COMPLEXITY_MAX_ROWS}" >&2
 fi
@@ -286,18 +293,35 @@ for entry in "${DATASETS[@]}"; do
     continue
   fi
 
+  err_capture="$(mktemp)"
   set +e
-  run_one "${src}" "${ref}" "${lbl}" "${per_max:-}"
+  run_one "${src}" "${ref}" "${lbl}" "${per_max:-}" 2> >(tee "${err_capture}" >&2)
   code=$?
   set -e
 
-  if [[ "${code}" -ne 0 ]]; then
+  if [[ "${code}" -eq 0 ]]; then
+    ok_count=$((ok_count + 1))
+  else
+    fail_count=$((fail_count + 1))
+    ds_name="$(basename "${ref}")"
     echo "FAILED (exit ${code}): ${ref}" >&2
+    {
+      echo "========== $(date -Iseconds) exit=${code} ${ds_name} =========="
+      echo "ref: ${ref}"
+      cat "${err_capture}"
+      echo ""
+    } >>"${FAILURE_LOG}"
     if [[ "${CONTINUE_ON_ERROR}" != "1" ]]; then
+      rm -f "${err_capture}"
       exit "${code}"
     fi
   fi
+  rm -f "${err_capture}"
 done
 
 echo "" >&2
 echo "Batch finished. Output: ${OUTPUT_CSV}" >&2
+echo "Succeeded: ${ok_count}  Failed: ${fail_count}  Total: ${total}" >&2
+if [[ "${fail_count}" -gt 0 ]]; then
+  echo "See failure details: ${FAILURE_LOG}" >&2
+fi
