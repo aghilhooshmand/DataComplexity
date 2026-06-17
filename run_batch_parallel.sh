@@ -93,28 +93,10 @@ DRY_RUN="${DRY_RUN:-0}"
 #   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only
 # Use | as separator (do not use | inside URLs).
 #
-# Excludes datasets already in datasets_complexity_summary.csv (58 in pmlb_DS).
-# 63 datasets remain for batch runs.
+# Hive batch progress (vs results/datasets_complexity_summary.csv): 18/63 done, 45 remain.
+# Remaining datasets only — upsert skips rows that already have pycol_F1.
 # ---------------------------------------------------------------------------
 DATASETS=(
-  "csv|${SCRIPT_DIR}/pmlb_DS/GAMETES_Epistasis_2_Way_1000atts_0.4H_EDM_1_EDM_1_1.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/agaricus_lepiota.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/allbp.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/allhyper.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/allhypo.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/allrep.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_authorship.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_dmft.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_germangss.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/analcatdata_happiness.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/ann_thyroid.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/balance_scale.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/calendarDOW.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/car_evaluation.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/cars.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/churn.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/clean2.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/cloud.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/coil2000.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/collins.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/confidence.csv|target"
