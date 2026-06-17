@@ -1,0 +1,5 @@
+dataset_name,n3_cli_version,source,label_column,missing_values,k,n_rows_original,n_rows_used,n_rows_n3,n_features_after_encoding,n_classes,n_jobs,pycol_N3
+uci_186,1.0.0,uci,target,impute_median,1,6497,6497,6497,11,7,16,0.3383099892257965
+uci_2,1.0.0,uci,target,impute_median,1,48842,48842,48842,14,4,16,0.5822652635027231
+uci_222,1.0.0,uci,target,impute_median,1,45211,45211,45211,16,2,16,0.1433500696733096
+uci_848,1.0.0,uci,target,impute_median,1,61069,61069,61069,20,2,16,0.24473955689466015

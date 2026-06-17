@@ -1,0 +1,53 @@
+nohup: ignoring input
+N3 batch: 7 dataset(s)  Python: /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python
+Output: /home/aghil.hooshmand/projects/DataComplexity/results/batch_n3_parallel.csv  n_jobs=16  k=1
+
+========== [1/7] uci  https://archive.ics.uci.edu/dataset/186/wine+quality ==========
+Saved: /home/aghil.hooshmand/projects/DataComplexity/results/batch_n3_parallel.csv
+
+========== [2/7] uci  https://archive.ics.uci.edu/dataset/2/adult ==========
+Saved: /home/aghil.hooshmand/projects/DataComplexity/results/batch_n3_parallel.csv
+
+========== [3/7] uci  https://archive.ics.uci.edu/dataset/222/bank+marketing ==========
+Saved: /home/aghil.hooshmand/projects/DataComplexity/results/batch_n3_parallel.csv
+
+========== [4/7] uci  https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping ==========
+Traceback (most recent call last):
+  File "/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py", line 165, in <module>
+    main()
+  File "/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py", line 109, in main
+    df, name = load_dataset(args.source, args.ref)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py", line 45, in load_dataset
+    ds = fetch_ucirepo(id=int(ds_id))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aghil.hooshmand/projects/DataComplexity/.venv/lib/python3.12/site-packages/ucimlrepo/fetch.py", line 91, in fetch_ucirepo
+    raise DatasetNotFoundError('"{}" dataset (id={}) exists in the repository, but is not available for import. Please select a dataset from this list: https://archive.ics.uci.edu/datasets?skip=0&take=10&sort=desc&orderBy=NumHits&search=&Python=true'.format(name, id))
+ucimlrepo.fetch.DatasetNotFoundError: "Clickstream Data for Online Shopping" dataset (id=553) exists in the repository, but is not available for import. Please select a dataset from this list: https://archive.ics.uci.edu/datasets?skip=0&take=10&sort=desc&orderBy=NumHits&search=&Python=true
+FAILED (exit 1): https://archive.ics.uci.edu/dataset/553/clickstream+data+for+online+shopping
+
+========== [5/7] uci  https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators ==========
+Traceback (most recent call last):
+  File "/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py", line 165, in <module>
+    main()
+  File "/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py", line 115, in main
+    comp = Complexity(
+           ^^^^^^^^^^^
+  File "/home/aghil.hooshmand/projects/DataComplexity/pycol_fork/pycol_complexity/complexity.py", line 135, in __init__
+    self.dist_matrix,self.unnorm_dist_matrix = self.__calculate_distance_matrix(self.X,distance_func=distance_func)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aghil.hooshmand/projects/DataComplexity/pycol_fork/pycol_complexity/complexity.py", line 484, in __calculate_distance_matrix
+    distance_matrix,unnorm_distance_matrix=self.__distance_HEOM(X)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aghil.hooshmand/projects/DataComplexity/pycol_fork/pycol_complexity/complexity.py", line 370, in __distance_HEOM
+    dist_matrix=np.zeros((len(X),len(X)))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 479. GiB for an array with shape (253680, 253680) and data type float64
+FAILED (exit 1): https://archive.ics.uci.edu/dataset/891/cdc+diabetes+health+indicators
+
+========== [6/7] uci  https://archive.ics.uci.edu/dataset/848/secondary+mushroom+dataset ==========
+Saved: /home/aghil.hooshmand/projects/DataComplexity/results/batch_n3_parallel.csv
+
+========== [7/7] uci  https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume ==========
+/home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python: can't open file '/home/aghil.hooshmand/projects/DataComplexity/n3_parallel_cli.py': [Errno 2] No such file or directory
+FAILED (exit 2): https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume
