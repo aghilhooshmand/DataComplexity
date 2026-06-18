@@ -5,6 +5,7 @@ import argparse
 import multiprocessing as mp
 import re
 import sys
+import traceback
 from pathlib import Path
 from typing import Any, Callable
 
@@ -245,6 +246,44 @@ def _ensure_column_for_upsert(df: pd.DataFrame, col: str, sample_val: Any) -> No
         df[col] = None
 
 
+def append_failure_log(path: Path | None, message: str) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(message)
+        if not message.endswith("\n"):
+            fh.write("\n")
+
+
+def build_error_result(
+    args: argparse.Namespace,
+    exc: BaseException,
+    *,
+    dataset_name: str | None = None,
+    dataset_file: str | None = None,
+) -> dict[str, Any]:
+    ds_name = dataset_name or (Path(args.ref).stem if args.source == "csv" else str(args.ref))
+    ds_file = dataset_file
+    if ds_file is None:
+        if args.source == "csv":
+            ds_file = Path(args.ref).name
+        else:
+            ds_file = ds_name if str(ds_name).endswith(".csv") else f"{ds_name}.csv"
+    tb = traceback.format_exc()
+    return {
+        "dataset_name": ds_name,
+        "dataset_file": ds_file,
+        "parallel_cli_version": CLI_VERSION,
+        "source": args.source,
+        "label_column": args.label_column,
+        "missing_values": args.missing_values,
+        "n_jobs": int(max(1, args.n_jobs)),
+        "error": f"{type(exc).__name__}: {exc}",
+        "error_traceback": tb,
+    }
+
+
 def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "dataset_name") -> pd.DataFrame:
     """
     Upsert one result row into output CSV.
@@ -392,8 +431,52 @@ def main() -> None:
         action="store_true",
         help="Disable progress bar and step messages (for logs/CI).",
     )
+    parser.add_argument(
+        "--failure-log",
+        default=None,
+        metavar="PATH",
+        help="Append fatal errors (message + traceback) to this log file.",
+    )
     args = parser.parse_args()
 
+    try:
+        _run_cli(args)
+    except KeyboardInterrupt:
+        raise
+    except Exception as exc:
+        tb = traceback.format_exc()
+        err_line = f"{type(exc).__name__}: {exc}"
+        print(f"ERROR: {err_line}", file=sys.stderr, flush=True)
+        print(tb, file=sys.stderr, flush=True)
+        failure_log = Path(args.failure_log) if args.failure_log else None
+        if failure_log is not None:
+            ds_label = Path(args.ref).name if args.source == "csv" else args.ref
+            append_failure_log(
+                failure_log,
+                "\n".join(
+                    [
+                        f"========== CLI ERROR {ds_label} ==========",
+                        f"ref: {args.ref}",
+                        f"source: {args.source}",
+                        err_line,
+                        tb,
+                        "",
+                    ]
+                ),
+            )
+        try:
+            out_path = Path(args.output_csv)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            err_result = build_error_result(args, exc)
+            merged_df = upsert_result_row(out_path, err_result, key_col=args.upsert_key)
+            merged_df.to_csv(out_path, index=False)
+            print(f"Wrote error row to: {out_path}", file=sys.stderr, flush=True)
+        except Exception as write_exc:
+            print(f"Could not write error row to CSV: {write_exc}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+
+def _run_cli(args: argparse.Namespace) -> None:
     run_pycol = args.library in ("pycol", "both")
     if run_pycol:
         pycol_arg_chk = (
@@ -401,7 +484,7 @@ def main() -> None:
         )
         if pycol_arg_chk == "custom":
             if not args.pycol_custom_metrics or not str(args.pycol_custom_metrics).strip():
-                parser.error(
+                raise ValueError(
                     "When PyCol metrics are 'custom', pass --pycol-custom-metrics with a comma-separated list "
                     "(e.g. --pycol-custom-metrics N1,N3,F1,F1v)."
                 )

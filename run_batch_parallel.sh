@@ -46,7 +46,7 @@ PYCOL_PARALLEL_METRICS="0"
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
 # Active setting below: "cheap" → ~26 metrics, HEOM tier from PYCOL_DISTANCE_MATRIX=auto → one matrix max.
-PYCOL_METRICS_ARG="all"
+PYCOL_METRICS_ARG="cheap"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
@@ -78,8 +78,12 @@ NO_PROGRESS="0"
 #   "1" = log the error and continue with the next dataset (default for Hive/server)
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 
-# Append per-dataset failures here (exit code + last stderr lines).
+# Append per-dataset failures here (exit code + stderr/stdout).
 FAILURE_LOG="${SCRIPT_DIR}/results/batch_failures.log"
+# Full batch timeline (START/OK/FAIL/INTERRUPT for every dataset).
+BATCH_RUN_LOG="${SCRIPT_DIR}/results/batch_run.log"
+# Per-dataset stdout+stderr (one file per CSV name).
+BATCH_LOG_DIR="${SCRIPT_DIR}/results/batch_logs"
 
 # DRY_RUN:
 #   "0" = really run parallel_complexity_cli.py for each line
@@ -95,51 +99,13 @@ DRY_RUN="${DRY_RUN:-0}"
 #   max_rows (optional) = override COMPLEXITY_MAX_ROWS for this line only
 # Use | as separator (do not use | inside URLs).
 #
-# Hive batch: 45 remain. Sorted smallest → largest (by rows, then features).
-# Upsert skips rows that already have pycol_F1.
+# Hive batch: 56/63 done. 7 remain (largest; batch stopped at ring.csv).
+# coil2000 done earlier (old run order). Upsert skips rows with pycol_F1.
 # ---------------------------------------------------------------------------
 DATASETS=(
-  "csv|${SCRIPT_DIR}/pmlb_DS/confidence.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/lymphography.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/iris.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/tae.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/hayes_roth.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/flags.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/new_thyroid.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/ecoli.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/penguins.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/schizo.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/movement_libras.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/dermatology.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/collins.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/soybean.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/vehicle.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/vowel.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/yeast.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_red.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_morphological.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_zernike.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_karhunen.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_fourier.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_factors.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/mfeat_pixel.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/segmentation.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/dna.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/splice.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/led7.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/led24.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/spambase.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/wine_quality_white.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/waveform_21.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/waveform_40.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/page_blocks.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/texture.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/optdigits.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/satimage.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/ring.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/twonorm.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/mushroom.csv|target"
-  "csv|${SCRIPT_DIR}/pmlb_DS/coil2000.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/pendigits.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/nursery.csv|target"
   "csv|${SCRIPT_DIR}/pmlb_DS/magic.csv|target"
@@ -202,6 +168,7 @@ print_cmd() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
     --upsert-key "${UPSERT_KEY}"
+    --failure-log "${FAILURE_LOG}"
   )
   append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
@@ -236,6 +203,7 @@ run_one() {
     --missing-values "${MISSING_VALUES}"
     --output-csv "${OUTPUT_CSV}"
     --upsert-key "${UPSERT_KEY}"
+    --failure-log "${FAILURE_LOG}"
   )
   append_complexity_max_rows_arg "${per_max}"
   if [[ "${LIBRARY}" == "both" ]]; then
@@ -261,10 +229,51 @@ run_one() {
 total="${#DATASETS[@]}"
 ok_count=0
 fail_count=0
-: >"${FAILURE_LOG}" 2>/dev/null || true
+CURRENT_DATASET=""
+BATCH_SESSION_ID="$(date -Iseconds)"
+
+mkdir -p "$(dirname "${OUTPUT_CSV}")" "${BATCH_LOG_DIR}"
+
+log_batch() {
+  local line
+  line="$(date -Iseconds) ${*}"
+  echo "${line}" >>"${BATCH_RUN_LOG}"
+  echo "${line}" >&2
+}
+
+append_failure_block() {
+  {
+    echo "========== $(date -Iseconds) ${*} =========="
+    echo "session: ${BATCH_SESSION_ID}"
+    echo "dataset: ${CURRENT_DATASET}"
+    echo "ref: ${CURRENT_REF:-}"
+    echo "command: ${LAST_CMD:-}"
+    echo ""
+  } >>"${FAILURE_LOG}"
+}
+
+on_batch_signal() {
+  local sig="$1"
+  log_batch "SIGNAL ${sig} during dataset=${CURRENT_DATASET:-unknown}"
+  append_failure_block "INTERRUPTED signal=${sig} exit=130"
+  exit 130
+}
+
+trap 'on_batch_signal INT' INT
+trap 'on_batch_signal TERM' TERM
+
+{
+  echo ""
+  echo "################################################################"
+  echo "# BATCH SESSION ${BATCH_SESSION_ID}"
+  echo "# host: $(hostname)  pid: $$"
+  echo "# datasets: ${total}  output: ${OUTPUT_CSV}"
+  echo "################################################################"
+} >>"${BATCH_RUN_LOG}"
 
 echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
-echo "CONTINUE_ON_ERROR=${CONTINUE_ON_ERROR}  failures log: ${FAILURE_LOG}" >&2
+echo "CONTINUE_ON_ERROR=${CONTINUE_ON_ERROR}" >&2
+echo "Logs: failures=${FAILURE_LOG}  run=${BATCH_RUN_LOG}  per-dataset=${BATCH_LOG_DIR}/" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
   echo "PyCol metrics: ${PYCOL_METRICS_ARG}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}  parallel metrics: ${PYCOL_PARALLEL_METRICS}  n_jobs: ${N_JOBS}  max_rows(default): ${COMPLEXITY_MAX_ROWS}" >&2
 fi
@@ -293,35 +302,65 @@ for entry in "${DATASETS[@]}"; do
     continue
   fi
 
-  err_capture="$(mktemp)"
+  CURRENT_DATASET="$(basename "${ref}")"
+  CURRENT_REF="${ref}"
+  ds_log="${BATCH_LOG_DIR}/${CURRENT_DATASET}.log"
+  started_at="$(date -Iseconds)"
+  started_epoch="${SECONDS}"
+
+  log_batch "START [${i}/${total}] ${CURRENT_DATASET} ref=${ref}"
+  {
+    echo "========== START ${started_at} [${i}/${total}] =========="
+    echo "ref: ${ref}"
+    print_cmd "${src}" "${ref}" "${lbl}" "${per_max:-}"
+    echo ""
+  } >>"${ds_log}"
+
+  LAST_CMD="$(print_cmd "${src}" "${ref}" "${lbl}" "${per_max:-}")"
   set +e
-  run_one "${src}" "${ref}" "${lbl}" "${per_max:-}" 2> >(tee "${err_capture}" >&2)
-  code=$?
+  run_one "${src}" "${ref}" "${lbl}" "${per_max:-}" 2>&1 | tee -a "${ds_log}" >&2
+  code=${PIPESTATUS[0]}
   set -e
+  elapsed="$((SECONDS - started_epoch))"
+
+  {
+    echo ""
+    echo "========== END $(date -Iseconds) exit=${code} elapsed=${elapsed}s =========="
+  } >>"${ds_log}"
 
   if [[ "${code}" -eq 0 ]]; then
     ok_count=$((ok_count + 1))
+    log_batch "OK    [${i}/${total}] ${CURRENT_DATASET} elapsed=${elapsed}s"
   else
     fail_count=$((fail_count + 1))
-    ds_name="$(basename "${ref}")"
     echo "FAILED (exit ${code}): ${ref}" >&2
-    {
-      echo "========== $(date -Iseconds) exit=${code} ${ds_name} =========="
-      echo "ref: ${ref}"
-      cat "${err_capture}"
-      echo ""
-    } >>"${FAILURE_LOG}"
+    oom_hint=""
+    if [[ "${code}" -eq 137 ]] || [[ "${code}" -eq 9 ]]; then
+      oom_hint="Likely OOM kill (SIGKILL) — distance matrix may exceed RAM."
+    elif [[ "${code}" -eq 134 ]]; then
+      oom_hint="Likely abort (SIGABRT) — possible memory or native crash."
+    fi
+    append_failure_block "FAILED exit=${code} elapsed=${elapsed}s ${oom_hint}"
+    tail -n 80 "${ds_log}" >>"${FAILURE_LOG}"
+    echo "" >>"${FAILURE_LOG}"
+    if [[ -n "${oom_hint}" ]]; then
+      echo "${oom_hint}" >>"${FAILURE_LOG}"
+      echo "" >>"${FAILURE_LOG}"
+    fi
+    log_batch "FAIL  [${i}/${total}] ${CURRENT_DATASET} exit=${code} elapsed=${elapsed}s ${oom_hint}"
     if [[ "${CONTINUE_ON_ERROR}" != "1" ]]; then
-      rm -f "${err_capture}"
       exit "${code}"
     fi
   fi
-  rm -f "${err_capture}"
+  CURRENT_DATASET=""
+  CURRENT_REF=""
 done
 
 echo "" >&2
 echo "Batch finished. Output: ${OUTPUT_CSV}" >&2
 echo "Succeeded: ${ok_count}  Failed: ${fail_count}  Total: ${total}" >&2
+log_batch "FINISH session=${BATCH_SESSION_ID} ok=${ok_count} fail=${fail_count} total=${total}"
 if [[ "${fail_count}" -gt 0 ]]; then
   echo "See failure details: ${FAILURE_LOG}" >&2
+  echo "Per-dataset logs: ${BATCH_LOG_DIR}/" >&2
 fi
