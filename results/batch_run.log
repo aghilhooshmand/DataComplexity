@@ -4,3 +4,47 @@
 # host: aghil-Dell-Pro-14-Plus-PB14250  pid: 201223
 # datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
 ################################################################
+
+################################################################
+# BATCH SESSION 2026-06-19T01:01:51+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 244938
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+2026-06-19T01:01:51+01:00 FINISH session=2026-06-19T01:01:51+01:00 ok=0 fail=0 total=7
+
+################################################################
+# BATCH SESSION 2026-06-19T01:34:17+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 250155
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+2026-06-19T01:34:17+01:00 FINISH session=2026-06-19T01:34:17+01:00 ok=0 fail=0 total=7
+
+################################################################
+# BATCH SESSION 2026-06-19T02:03:05+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 257383
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+
+################################################################
+# BATCH SESSION 2026-06-19T02:05:19+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 257588
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+
+################################################################
+# BATCH SESSION 2026-06-19T02:07:33+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 258180
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+
+################################################################
+# BATCH SESSION 2026-06-19T02:10:22+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 258607
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################
+
+################################################################
+# BATCH SESSION 2026-06-19T02:23:22+01:00
+# host: aghil-Dell-Pro-14-Plus-PB14250  pid: 259884
+# datasets: 7  output: /home/aghil/Documents/my document/limerick/projects/DataComplexity/results/datasets_complexity_summary.csv
+################################################################

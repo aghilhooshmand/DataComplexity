@@ -6,17 +6,23 @@ Replaces the nested Python loops in ``pycol_complexity.Complexity.__distance_HEO
 
 - Same formulas as PyCol (normalized + optional unnormalized n×n matrices).
 - ``compute_unnorm=False`` skips the second matrix (~half RAM) when metrics only need ``dist_matrix``.
-- Optional ``n_jobs > 1``: parallel row chunks via :func:`build_heom_distance_matrices`.
+- ``storage="memmap"`` writes matrices to disk (low peak RAM; same values as RAM build).
+- Optional ``n_jobs > 1``: parallel row chunks (RAM only; memmap uses serial fill).
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
+import uuid
 from concurrent.futures import ProcessPoolExecutor
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 
+MatrixStorage = Literal["ram", "memmap"]
 _DEFAULT_PARALLEL_MIN_ROWS = 256
 
 
@@ -27,6 +33,50 @@ def _feat_missing_scalar(value: Any) -> bool:
         return bool(np.isnan(float(value)))
     except (TypeError, ValueError):
         return False
+
+
+def cleanup_memmap_files(*arrays: np.ndarray) -> None:
+    """Delete backing files for numpy memmap arrays (no-op for in-RAM arrays)."""
+    seen: set[str] = set()
+    for arr in arrays:
+        if not isinstance(arr, np.memmap):
+            continue
+        path = getattr(arr, "filename", None)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        try:
+            arr._mmap.close()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            del arr
+        except Exception:
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def cleanup_memmap_dir(memmap_dir: Path | str | None, *, remove_dir: bool = False) -> None:
+    """
+    Delete PyCol memmap temp files under ``memmap_dir``.
+
+    When ``remove_dir`` is True, removes the directory itself (use per-dataset scratch dirs only).
+    """
+    if memmap_dir is None:
+        return
+    root = Path(memmap_dir)
+    if not root.is_dir():
+        return
+    for path in list(root.glob("pycol_*.dat")):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if remove_dir:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _heom_row_sq(
@@ -76,6 +126,22 @@ def _heom_row_sq(
     return d_row, np.sqrt(unnorm_sq)
 
 
+def _allocate_matrix(
+    n: int,
+    dtype: np.dtype,
+    *,
+    storage: MatrixStorage,
+    memmap_dir: Path | None,
+    tag: str,
+) -> np.ndarray:
+    if storage == "ram":
+        return np.zeros((n, n), dtype=dtype)
+    base = memmap_dir or Path(tempfile.gettempdir())
+    base.mkdir(parents=True, exist_ok=True)
+    path = base / f"pycol_{tag}_{uuid.uuid4().hex}.dat"
+    return np.memmap(path, dtype=dtype, mode="w+", shape=(n, n))
+
+
 def _fill_matrix_rows(
     i_start: int,
     i_end: int,
@@ -87,16 +153,19 @@ def _fill_matrix_rows(
     unnorm_dist_matrix: np.ndarray | None,
     *,
     compute_unnorm: bool,
+    dtype: np.dtype,
 ) -> None:
     for i in range(i_start, i_end):
         d_row, ud_row = _heom_row_sq(
             i, x, meta, range_max, range_min, compute_unnorm=compute_unnorm
         )
-        dist_matrix[i, :] = d_row
-        dist_matrix[:, i] = d_row
+        row = d_row.astype(dtype, copy=False)
+        dist_matrix[i, :] = row
+        dist_matrix[:, i] = row
         if compute_unnorm and unnorm_dist_matrix is not None and ud_row is not None:
-            unnorm_dist_matrix[i, :] = ud_row
-            unnorm_dist_matrix[:, i] = ud_row
+            urow = ud_row.astype(dtype, copy=False)
+            unnorm_dist_matrix[i, :] = urow
+            unnorm_dist_matrix[:, i] = urow
 
 
 def _heom_chunk_worker(
@@ -125,28 +194,40 @@ def build_heom_distance_matrices(
     n_jobs: int = 1,
     parallel_min_rows: int = _DEFAULT_PARALLEL_MIN_ROWS,
     compute_unnorm: bool = True,
+    matrix_dtype: np.dtype | type = np.float64,
+    storage: MatrixStorage = "ram",
+    memmap_dir: Path | str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Build ``dist_matrix`` and optionally ``unnorm_dist_matrix`` (n×n), PyCol HEOM semantics.
 
-    When ``compute_unnorm`` is false, returns ``(dist_matrix, empty (0,0) unnorm)`` — ~half RAM.
+    ``storage="memmap"`` uses disk-backed arrays (same values as RAM; lower peak memory).
+    Parallel row workers are disabled for memmap (serial fill; runtime OK on large n).
     """
+    dtype = np.dtype(matrix_dtype)
+    mm_dir = Path(memmap_dir) if memmap_dir is not None else None
     x = np.asarray(x, dtype=float)
     n = int(x.shape[0])
     if n == 0:
-        z = np.zeros((0, 0), dtype=float)
+        z = np.zeros((0, 0), dtype=dtype)
         return z, z.copy()
 
     meta_list = [int(m) for m in meta]
     range_max = np.max(x, axis=0)
     range_min = np.min(x, axis=0)
 
-    dist_matrix = np.zeros((n, n), dtype=float)
+    dist_matrix = _allocate_matrix(n, dtype, storage=storage, memmap_dir=mm_dir, tag="dist")
     unnorm_dist_matrix: np.ndarray | None = (
-        np.zeros((n, n), dtype=float) if compute_unnorm else None
+        _allocate_matrix(n, dtype, storage=storage, memmap_dir=mm_dir, tag="unnorm")
+        if compute_unnorm
+        else None
     )
 
-    use_parallel = int(n_jobs) > 1 and n >= int(parallel_min_rows)
+    use_parallel = (
+        storage == "ram"
+        and int(n_jobs) > 1
+        and n >= int(parallel_min_rows)
+    )
     if not use_parallel:
         _fill_matrix_rows(
             0,
@@ -158,6 +239,7 @@ def build_heom_distance_matrices(
             dist_matrix,
             unnorm_dist_matrix,
             compute_unnorm=compute_unnorm,
+            dtype=dtype,
         )
     else:
         workers = max(1, min(int(n_jobs), n, os.cpu_count() or 1))
@@ -177,16 +259,23 @@ def build_heom_distance_matrices(
         with ProcessPoolExecutor(max_workers=workers) as pool:
             for i_start, i_end, dist_rows, unnorm_rows in pool.map(_heom_chunk_worker, tasks):
                 for ii, i in enumerate(range(i_start, i_end)):
-                    dist_matrix[i, :] = dist_rows[ii]
-                    dist_matrix[:, i] = dist_rows[ii]
+                    row = dist_rows[ii].astype(dtype, copy=False)
+                    dist_matrix[i, :] = row
+                    dist_matrix[:, i] = row
                     if (
                         compute_unnorm
                         and unnorm_dist_matrix is not None
                         and unnorm_rows is not None
                     ):
-                        unnorm_dist_matrix[i, :] = unnorm_rows[ii]
-                        unnorm_dist_matrix[:, i] = unnorm_rows[ii]
+                        urow = unnorm_rows[ii].astype(dtype, copy=False)
+                        unnorm_dist_matrix[i, :] = urow
+                        unnorm_dist_matrix[:, i] = urow
+
+    if isinstance(dist_matrix, np.memmap):
+        dist_matrix.flush()
+    if isinstance(unnorm_dist_matrix, np.memmap):
+        unnorm_dist_matrix.flush()
 
     if compute_unnorm and unnorm_dist_matrix is not None:
         return dist_matrix, unnorm_dist_matrix
-    return dist_matrix, np.zeros((0, 0), dtype=float)
+    return dist_matrix, np.zeros((0, 0), dtype=dtype)
