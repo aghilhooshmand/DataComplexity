@@ -245,20 +245,48 @@ def run_parallel_jobs(
     return {k: v for k, v in out}
 
 
+def _is_boolish(val: Any) -> bool:
+    return isinstance(val, (bool, np.bool_))
+
+
+def _coerce_value_for_column(val: Any, series: pd.Series) -> Any:
+    """Make ``val`` storable in ``series`` without pandas dtype errors."""
+    if _is_boolish(val):
+        if col_is_numeric := pd.api.types.is_numeric_dtype(series.dtype):
+            return float(int(val))
+        return bool(val)
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    return val
+
+
 def _ensure_column_for_upsert(df: pd.DataFrame, col: str, sample_val: Any) -> None:
-    """Add a missing column with a dtype that accepts ``sample_val`` (e.g. str HEOM tier)."""
+    """Add a column if missing, compatible with legacy float64 summary CSVs."""
     if col in df.columns:
-        if isinstance(sample_val, str) and pd.api.types.is_numeric_dtype(df[col]):
-            df[col] = df[col].astype(object)
         return
-    if isinstance(sample_val, bool):
-        df[col] = pd.Series([pd.NA] * len(df), dtype="boolean")
-    elif isinstance(sample_val, (int, float, np.integer, np.floating)) and not isinstance(
-        sample_val, bool
+    if _is_boolish(sample_val):
+        df[col] = np.nan
+    elif isinstance(sample_val, (int, float, np.integer, np.floating)) and not _is_boolish(
+        sample_val
     ):
         df[col] = np.nan
     else:
         df[col] = None
+
+
+def _prepare_result_row_for_upsert(result: dict[str, Any], existing: pd.DataFrame) -> dict[str, Any]:
+    """Coerce values so upsert works against legacy float64 columns."""
+    prepared: dict[str, Any] = {}
+    for col, val in result.items():
+        if col in existing.columns:
+            prepared[col] = _coerce_value_for_column(val, existing[col])
+        elif _is_boolish(val):
+            prepared[col] = float(int(val))
+        else:
+            prepared[col] = val
+    return prepared
 
 
 def append_failure_log(path: Path | None, message: str) -> None:
@@ -321,13 +349,17 @@ def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "
 
     key_val = result.get(key_col)
     mask = existing[key_col].astype(str) == str(key_val)
+    row = _prepare_result_row_for_upsert(result, existing)
     if mask.any():
         idx = existing.index[mask][0]
-        for col, val in result.items():
+        for col, val in row.items():
             _ensure_column_for_upsert(existing, col, val)
+            if col in existing.columns:
+                val = _coerce_value_for_column(val, existing[col])
             existing.at[idx, col] = val
         return existing
 
+    new_row_df = pd.DataFrame([row])
     return pd.concat([existing, new_row_df], ignore_index=True, sort=False)
 
 
