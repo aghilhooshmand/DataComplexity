@@ -560,6 +560,8 @@ def compute_pycol_metrics(
     heom_n_jobs: int = 1,
     matrix_dtype: np.dtype | type = np.float64,
     progress_callback: PycolProgressCallback | Callable[[str], None] | None = None,
+    existing_pycol: dict[str, Any] | None = None,
+    on_metric_complete: Callable[[str, Any], None] | None = None,
 ) -> dict[str, Any]:
     import os
 
@@ -590,31 +592,65 @@ def compute_pycol_metrics(
     if omitted_need_dist:
         out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
 
-    total_metrics = len(no_dist_metrics) + len(need_dist_metrics)
-    metrics_done = 0
+    if omitted_need_dist:
+        out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
+
+    def _metric_already_done(metric: str) -> bool:
+        col = f"pycol_{metric}"
+        if col in out and out[col] is not None:
+            val = out[col]
+            if isinstance(val, float) and np.isnan(val):
+                pass
+            elif isinstance(val, str) and val.strip() == "":
+                pass
+            else:
+                return True
+        if existing_pycol is None:
+            return False
+        val = existing_pycol.get(col)
+        if val is None:
+            return False
+        if isinstance(val, float) and np.isnan(val):
+            return False
+        if isinstance(val, str) and str(val).strip() == "":
+            return False
+        out[col] = val
+        return True
+
+    all_metric_names = no_dist_metrics + need_dist_metrics
+    total_metrics = len(all_metric_names)
+    metrics_done = sum(1 for m in all_metric_names if _metric_already_done(m))
+
+    no_dist_pending = [m for m in no_dist_metrics if not _metric_already_done(m)]
+    need_dist_pending = [m for m in need_dist_metrics if not _metric_already_done(m)]
 
     def _metric_start(metric: str) -> None:
         _invoke_pycol_progress(progress_callback, metric, metrics_done + 1, total_metrics)
 
-    def _metric_done(metric: str) -> None:
+    def _metric_done(metric: str, value: Any) -> None:
         nonlocal metrics_done
+        out[f"pycol_{metric}"] = value
         metrics_done += 1
         _invoke_pycol_progress(
             progress_callback, f"done:{metric}", metrics_done, total_metrics
         )
+        if on_metric_complete is not None:
+            on_metric_complete(metric, value)
 
-    if no_dist_metrics:
-        _invoke_pycol_progress(progress_callback, "__init__", 0, total_metrics)
+    if no_dist_pending:
+        _invoke_pycol_progress(progress_callback, "__init__", metrics_done, total_metrics)
         comp_fast = build_pycol_complexity(
             x, y, matrix_mode="skip", parallel_heom=False, heom_n_jobs=heom_n_jobs
         )
-        for metric in no_dist_metrics:
+        for metric in no_dist_pending:
             _metric_start(metric)
-            out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_fast, metric)
-            _metric_done(metric)
+            _metric_done(metric, _evaluate_pycol_metric(comp_fast, metric))
+    elif no_dist_metrics and not no_dist_pending and not need_dist_pending:
+        out["pycol_distance_matrix_skipped"] = True
+    elif no_dist_metrics and not need_dist_metrics:
         out["pycol_distance_matrix_skipped"] = True
 
-    if need_dist_metrics:
+    if need_dist_pending:
         _invoke_pycol_progress(progress_callback, "__init_dist__", metrics_done, total_metrics)
         comp_dist = build_pycol_complexity(
             x,
@@ -628,10 +664,9 @@ def compute_pycol_metrics(
             out["pycol_heom_parallel"] = True
         if mode == "dist":
             out["pycol_heom_unnorm_skipped"] = True
-        for metric in need_dist_metrics:
+        for metric in need_dist_pending:
             _metric_start(metric)
-            out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_dist, metric)
-            _metric_done(metric)
+            _metric_done(metric, _evaluate_pycol_metric(comp_dist, metric))
 
     return out
 

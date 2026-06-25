@@ -160,7 +160,11 @@ def _progress_sink(enabled: bool, msg: str, *, end: str = "\n") -> None:
         print(msg, end=end, file=sys.stderr, flush=True)
 
 
-def make_pycol_progress_callback(enabled: bool) -> Callable[[str, int, int], None] | None:
+def make_pycol_progress_callback(
+    enabled: bool,
+    *,
+    initial_completed: int = 0,
+) -> Callable[[str, int, int], None] | None:
     """Per-metric CLI progress: start/done lines plus an optional tqdm bar."""
     if not enabled:
         return None
@@ -187,6 +191,7 @@ def make_pycol_progress_callback(enabled: bool) -> Callable[[str, int, int], Non
 
             pbar_holder["bar"] = tqdm(
                 total=total,
+                initial=initial_completed,
                 desc="PyCol metrics",
                 file=sys.stderr,
                 unit="metric",
@@ -240,6 +245,7 @@ def run_parallel_jobs(
     pycol_heom_n_jobs: int = 1,
     pycol_matrix_mode: PycolMatrixMode = "dist",
     pycol_matrix_dtype: np.dtype | type = np.float64,
+    on_metric_complete: Callable[[str, Any], None] | None = None,
 ) -> dict[str, Any]:
     if not metrics:
         return {}
@@ -275,20 +281,26 @@ def run_parallel_jobs(
 
     with mp.Pool(processes=n_workers) as pool:
         if show_progress and use_tqdm:
-            out = list(
-                tqdm(
-                    pool.imap_unordered(worker, inputs, chunksize=1),
-                    total=total,
-                    desc=desc,
-                    unit="metric",
-                    file=sys.stderr,
-                    leave=True,
-                )
-            )
+            out = []
+            for item in tqdm(
+                pool.imap_unordered(worker, inputs, chunksize=1),
+                total=total,
+                desc=desc,
+                unit="metric",
+                file=sys.stderr,
+                leave=True,
+            ):
+                out.append(item)
+                key, val = item
+                if on_metric_complete is not None and library == "pycol" and key.startswith("pycol_"):
+                    on_metric_complete(key[6:], val)
         elif show_progress:
             out = []
             for i, item in enumerate(pool.imap_unordered(worker, inputs, chunksize=1), start=1):
                 out.append(item)
+                key, val = item
+                if on_metric_complete is not None and library == "pycol" and key.startswith("pycol_"):
+                    on_metric_complete(key[6:], val)
                 pct = 100 * i // total if total else 100
                 _progress_sink(
                     True,
@@ -296,7 +308,12 @@ def run_parallel_jobs(
                     end="" if i < total else "\n",
                 )
         else:
-            out = pool.map(worker, inputs)
+            out = []
+            for item in pool.map(worker, inputs):
+                out.append(item)
+                key, val = item
+                if on_metric_complete is not None and library == "pycol" and key.startswith("pycol_"):
+                    on_metric_complete(key[6:], val)
     return {k: v for k, v in out}
 
 
@@ -306,8 +323,12 @@ def _is_boolish(val: Any) -> bool:
 
 def _coerce_value_for_column(val: Any, series: pd.Series) -> Any:
     """Make ``val`` storable in ``series`` without pandas dtype errors."""
+    if pd.api.types.is_bool_dtype(series.dtype):
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            return val
+        return bool(val)
     if _is_boolish(val):
-        if col_is_numeric := pd.api.types.is_numeric_dtype(series.dtype):
+        if pd.api.types.is_numeric_dtype(series.dtype):
             return float(int(val))
         return bool(val)
     if isinstance(val, (np.integer,)):
@@ -342,6 +363,63 @@ def _prepare_result_row_for_upsert(result: dict[str, Any], existing: pd.DataFram
         else:
             prepared[col] = val
     return prepared
+
+
+def _stored_value_is_present(val: Any) -> bool:
+    if val is None:
+        return False
+    if isinstance(val, float) and np.isnan(val):
+        return False
+    if isinstance(val, str) and val.strip() == "":
+        return False
+    return True
+
+
+def pycol_metric_is_done(existing_row: dict[str, Any], metric: str) -> bool:
+    return _stored_value_is_present(existing_row.get(f"pycol_{metric}"))
+
+
+def load_dataset_result_row(output_csv: Path, key_col: str, key_val: str) -> dict[str, Any]:
+    """Return the saved CSV row for one dataset, or {} if not found."""
+    if not output_csv.exists():
+        return {}
+    existing = pd.read_csv(output_csv)
+    if existing.empty or key_col not in existing.columns:
+        return {}
+    mask = existing[key_col].astype(str) == str(key_val)
+    if not mask.any():
+        return {}
+    row = existing.loc[mask].iloc[0]
+    return {str(k): (None if pd.isna(v) else v) for k, v in row.items()}
+
+
+def save_result_checkpoint(
+    output_csv: Path,
+    result: dict[str, Any],
+    *,
+    key_col: str,
+) -> None:
+    """Upsert one result row and write CSV immediately (per-metric checkpoint)."""
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    merged = upsert_result_row(output_csv, result, key_col=key_col)
+    merged.to_csv(output_csv, index=False)
+
+
+def make_pycol_checkpoint_saver(
+    output_csv: Path,
+    result: dict[str, Any],
+    *,
+    key_col: str,
+) -> Callable[[str, Any], None]:
+    """Save each completed PyCol metric to the output CSV as soon as it finishes."""
+
+    def _save(metric: str, value: Any) -> None:
+        result[f"pycol_{metric}"] = value
+        result.pop("error", None)
+        result.pop("error_traceback", None)
+        save_result_checkpoint(output_csv, result, key_col=key_col)
+
+    return _save
 
 
 def append_failure_log(path: Path | None, message: str) -> None:
@@ -540,6 +618,14 @@ def main() -> None:
         help="Disable progress bar and step messages (for logs/CI).",
     )
     parser.add_argument(
+        "--pycol-no-resume",
+        action="store_true",
+        help=(
+            "Recompute all PyCol metrics from scratch. Default: resume — skip metrics "
+            "already saved in --output-csv for this dataset."
+        ),
+    )
+    parser.add_argument(
         "--failure-log",
         default=None,
         metavar="PATH",
@@ -662,6 +748,8 @@ def _run_cli_body(args: argparse.Namespace) -> None:
 
     n_jobs = int(max(1, args.n_jobs))
     matrix_dtype = np.dtype(args.pycol_matrix_dtype)
+    out_path = Path(args.output_csv)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if run_pycol:
         pycol_arg = args.metrics if args.library == "pycol" else args.pycol_metrics
@@ -690,14 +778,47 @@ def _run_cli_body(args: argparse.Namespace) -> None:
             pycol_metrics_run = pycol_metrics
             if show_progress:
                 step(f"      PyCol: HEOM tier `{pycol_matrix_mode}` for distance metrics.")
+
+        existing_row: dict[str, Any] = {}
+        if not args.pycol_no_resume:
+            existing_row = load_dataset_result_row(
+                out_path, args.upsert_key, str(result[args.upsert_key])
+            )
+            for k, v in existing_row.items():
+                if k.startswith("pycol_") and _stored_value_is_present(v):
+                    result[k] = v
+
+        lookup_row = {**existing_row, **result}
+        already_done = [m for m in pycol_metrics_run if pycol_metric_is_done(lookup_row, m)]
+        pending_metrics = [m for m in pycol_metrics_run if m not in already_done]
+
+        if already_done and not args.pycol_no_resume and show_progress:
+            step(
+                f"      PyCol resume: {len(already_done)} already saved, "
+                f"{len(pending_metrics)} remaining"
+            )
+            preview = ", ".join(already_done[:10])
+            if len(already_done) > 10:
+                preview += f", … (+{len(already_done) - 10} more)"
+            step(f"        skipped: {preview}")
+
+        checkpoint = make_pycol_checkpoint_saver(
+            out_path, result, key_col=args.upsert_key
+        )
+
         n_pycol = int(x_met.shape[0])
         use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
-        if use_sequential_pycol:
+        if not pending_metrics:
+            step("      PyCol: all metrics already saved in CSV — nothing to compute.")
+        elif use_sequential_pycol:
             phase(
-                f"PyCol: computing {len(pycol_metrics_run)} metric(s) sequentially "
-                f"(single Complexity, n={n_pycol}, dtype={matrix_dtype}) …"
+                f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
+                f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
+                f"dtype={matrix_dtype}) …"
             )
-            prog_cb = make_pycol_progress_callback(show_progress)
+            prog_cb = make_pycol_progress_callback(
+                show_progress, initial_completed=len(already_done)
+            )
             result.update(
                 compute_pycol_metrics(
                     x_met,
@@ -710,17 +831,22 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                     heom_n_jobs=n_jobs,
                     matrix_dtype=matrix_dtype,
                     progress_callback=prog_cb,
+                    existing_pycol=existing_row if not args.pycol_no_resume else None,
+                    on_metric_complete=checkpoint,
                 )
             )
             result["pycol_sequential_large_n"] = True
         else:
-            phase(f"PyCol: computing {len(pycol_metrics_run)} metric(s) in parallel …")
+            phase(
+                f"PyCol: computing {len(pending_metrics)} metric(s) in parallel "
+                f"({len(already_done)} already saved) …"
+            )
             result.update(
                 run_parallel_jobs(
                     "pycol",
                     x_met,
                     y_met,
-                    pycol_metrics_run,
+                    pending_metrics,
                     n_jobs,
                     show_progress=show_progress,
                     desc="pycol",
@@ -729,6 +855,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                     pycol_heom_n_jobs=n_jobs,
                     pycol_matrix_mode=pycol_matrix_mode,
                     pycol_matrix_dtype=matrix_dtype,
+                    on_metric_complete=checkpoint,
                 )
             )
         step("      PyCol done.")
@@ -753,8 +880,6 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         )
         step("      PyMFE done.")
 
-    out_path = Path(args.output_csv)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     phase("Merging and writing CSV …")
     merged_df = upsert_result_row(out_path, result, key_col=args.upsert_key)
     merged_df.to_csv(out_path, index=False)
