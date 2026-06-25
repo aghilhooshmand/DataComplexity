@@ -379,12 +379,28 @@ def pycol_metric_is_done(existing_row: dict[str, Any], metric: str) -> bool:
     return _stored_value_is_present(existing_row.get(f"pycol_{metric}"))
 
 
+def _read_results_csv(output_csv: Path) -> pd.DataFrame | None:
+    """Read summary CSV, or None if missing / empty / unreadable (treat as no prior results)."""
+    if not output_csv.exists():
+        return None
+    try:
+        if output_csv.stat().st_size == 0:
+            return None
+    except OSError:
+        return None
+    try:
+        existing = pd.read_csv(output_csv)
+    except pd.errors.EmptyDataError:
+        return None
+    if existing.empty and len(existing.columns) == 0:
+        return None
+    return existing
+
+
 def load_dataset_result_row(output_csv: Path, key_col: str, key_val: str) -> dict[str, Any]:
     """Return the saved CSV row for one dataset, or {} if not found."""
-    if not output_csv.exists():
-        return {}
-    existing = pd.read_csv(output_csv)
-    if existing.empty or key_col not in existing.columns:
+    existing = _read_results_csv(output_csv)
+    if existing is None or existing.empty or key_col not in existing.columns:
         return {}
     mask = existing[key_col].astype(str) == str(key_val)
     if not mask.any():
@@ -469,10 +485,10 @@ def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "
     """
     new_row_df = pd.DataFrame([result])
 
-    if not output_csv.exists():
+    existing = _read_results_csv(output_csv)
+    if existing is None:
         return new_row_df
 
-    existing = pd.read_csv(output_csv)
     if existing.empty:
         return new_row_df
 
