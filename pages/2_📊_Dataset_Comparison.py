@@ -320,21 +320,46 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
         for i, ds in enumerate(datasets, start=1):
             try:
 
-                def _pycol_cb(metric: str, *, _i: int = i, _name: str = ds["dataset_name"]) -> None:
+                def _pycol_cb(
+                    metric: str,
+                    metric_idx: int = 0,
+                    n_metrics: int = 0,
+                    *,
+                    _i: int = i,
+                    _name: str = ds["dataset_name"],
+                    _ds_total: int = total,
+                ) -> None:
+                    ds_pct = min(99, int((_i - 1) / _ds_total * 100 + 2))
                     if metric == "__init__":
                         progress.progress(
-                            min(99, int((_i - 1) / total * 100 + 2)),
-                            text=f"[{_i}/{total}] `{_name}`: PyCol init (no distance matrix)…",
+                            ds_pct,
+                            text=f"[{_i}/{_ds_total}] `{_name}`: PyCol fast metrics…",
                         )
                     elif metric == "__init_dist__":
                         progress.progress(
-                            min(99, int((_i - 1) / total * 100 + 2)),
-                            text=f"[{_i}/{total}] `{_name}`: PyCol building HEOM distances…",
+                            ds_pct,
+                            text=f"[{_i}/{_ds_total}] `{_name}`: PyCol building HEOM…",
+                        )
+                    elif metric.startswith("done:"):
+                        mname = metric[5:]
+                        left = max(0, n_metrics - metric_idx) if n_metrics else 0
+                        progress.progress(
+                            min(99, int((_i - 1) / _ds_total * 100 + 5)),
+                            text=(
+                                f"[{_i}/{_ds_total}] `{_name}`: "
+                                f"{metric_display_name(mname, 'pycol')} done "
+                                f"[{metric_idx}/{n_metrics}, {left} left]"
+                            ),
                         )
                     else:
+                        left = max(0, n_metrics - metric_idx + 1) if n_metrics else 0
                         progress.progress(
-                            min(99, int((_i - 1) / total * 100 + 5)),
-                            text=f"[{_i}/{total}] `{_name}`: {metric_display_name(metric, 'pycol')} …",
+                            min(99, int((_i - 1) / _ds_total * 100 + 5)),
+                            text=(
+                                f"[{_i}/{_ds_total}] `{_name}`: "
+                                f"{metric_display_name(metric, 'pycol')} "
+                                f"[{metric_idx}/{n_metrics}, {left} to go]"
+                            ),
                         )
 
                 pcb = _pycol_cb if "pycol" in selected_libraries else None

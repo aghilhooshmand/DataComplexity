@@ -114,7 +114,7 @@ fi
 
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
-echo "Mode:    serial PyCol (n_jobs=1, no parallel HEOM/metrics)" >&2
+echo "Mode:    serial PyCol (n_jobs=1); per-metric progress on stderr" >&2
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   printf '%q ' "${cmd[@]}"

@@ -327,13 +327,26 @@ if df is not None:
                         f"HEOM tier: **{metric_config.pycol_matrix_mode}**."
                     )
 
-                    def _pycol_prog(m: str) -> None:
+                    def _pycol_prog(m: str, idx: int = 0, total: int = 0) -> None:
                         if m == "__init__":
-                            st_status.write("**PyCol:** initializing (no distance matrix)…")
+                            st_status.write("**PyCol:** fast metrics (no distance matrix)…")
                         elif m == "__init_dist__":
                             st_status.write("**PyCol:** building distance matrix (HEOM)…")
+                        elif m.startswith("done:"):
+                            metric = m[5:]
+                            label = metric_display_name(metric, "pycol")
+                            left = max(0, total - idx) if total else 0
+                            st_status.write(
+                                f"**PyCol:** [{idx}/{total}] `{label}` done"
+                                + (f" — {left} remaining" if total else "")
+                            )
                         else:
-                            st_status.write(f"**PyCol:** computing `{metric_display_name(m, 'pycol')}` …")
+                            label = metric_display_name(m, "pycol")
+                            left = max(0, total - idx + 1) if total else 0
+                            st_status.write(
+                                f"**PyCol:** [{idx}/{total}] `{label}` …"
+                                + (f" ({left} to go)" if total else "")
+                            )
 
                     result.update(
                         compute_pycol_metrics(

@@ -160,6 +160,73 @@ def _progress_sink(enabled: bool, msg: str, *, end: str = "\n") -> None:
         print(msg, end=end, file=sys.stderr, flush=True)
 
 
+def make_pycol_progress_callback(enabled: bool) -> Callable[[str, int, int], None] | None:
+    """Per-metric CLI progress: start/done lines plus an optional tqdm bar."""
+    if not enabled:
+        return None
+
+    pbar_holder: dict[str, Any] = {"bar": None}
+
+    def _log(msg: str) -> None:
+        bar = pbar_holder.get("bar")
+        if bar is not None:
+            try:
+                from tqdm import tqdm  # type: ignore[import-untyped]
+
+                tqdm.write(msg, file=sys.stderr)
+            except ImportError:
+                _progress_sink(True, msg)
+        else:
+            _progress_sink(True, msg)
+
+    def _ensure_bar(total: int) -> None:
+        if pbar_holder["bar"] is not None or total <= 0:
+            return
+        try:
+            from tqdm import tqdm  # type: ignore[import-untyped]
+
+            pbar_holder["bar"] = tqdm(
+                total=total,
+                desc="PyCol metrics",
+                file=sys.stderr,
+                unit="metric",
+                leave=True,
+            )
+        except ImportError:
+            pass
+
+    def cb(event: str, index: int, total: int) -> None:
+        if event == "__init__":
+            _log("      PyCol: fast metrics (no distance matrix) …")
+            return
+        if event == "__init_dist__":
+            bar = pbar_holder.get("bar")
+            if bar is not None:
+                bar.close()
+                pbar_holder["bar"] = None
+            _log(
+                "      PyCol: building HEOM distance matrix (can take hours on large n) …",
+            )
+            return
+        if event.startswith("done:"):
+            metric = event[5:]
+            remaining = max(0, total - index)
+            _ensure_bar(total)
+            bar = pbar_holder.get("bar")
+            if bar is not None:
+                bar.update(1)
+            _log(
+                f"      PyCol [{index}/{total}] `{metric}` done — {remaining} remaining",
+            )
+            return
+
+        remaining = max(0, total - index + 1)
+        _ensure_bar(total)
+        _log(f"      PyCol [{index}/{total}] `{event}` … ({remaining} to go)")
+
+    return cb
+
+
 def run_parallel_jobs(
     library: str,
     x: np.ndarray,
@@ -534,7 +601,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                     "(e.g. --pycol-custom-metrics N1,N3,F1,F1v)."
                 )
 
-    show_progress = not args.no_progress and sys.stderr.isatty()
+    show_progress = not args.no_progress
 
     def step(msg: str) -> None:
         _progress_sink(show_progress, msg)
@@ -630,18 +697,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                 f"PyCol: computing {len(pycol_metrics_run)} metric(s) sequentially "
                 f"(single Complexity, n={n_pycol}, dtype={matrix_dtype}) …"
             )
-            if show_progress:
-                def _pycol_prog(m: str) -> None:
-                    if m == "__init__":
-                        _progress_sink(True, "      PyCol: initializing (no distance matrix) …")
-                    elif m == "__init_dist__":
-                        _progress_sink(True, "      PyCol: initializing (distance matrix) …")
-                    else:
-                        _progress_sink(True, f"      PyCol: `{m}` …")
-
-                prog_cb = _pycol_prog
-            else:
-                prog_cb = None
+            prog_cb = make_pycol_progress_callback(show_progress)
             result.update(
                 compute_pycol_metrics(
                     x_met,

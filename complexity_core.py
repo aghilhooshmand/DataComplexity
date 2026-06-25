@@ -9,6 +9,25 @@ from sklearn.manifold import TSNE
 
 from metric_catalog import PYMFE_COMPLEXITY_METRICS
 
+# ``event`` is a metric name, ``__init__`` / ``__init_dist__``, or ``done:<metric>``.
+# ``index`` is 1-based position when starting a metric, or completed count after ``done:``.
+# ``total`` is the number of PyCol metrics in this run.
+PycolProgressCallback = Callable[[str, int, int], None]
+
+
+def _invoke_pycol_progress(
+    callback: PycolProgressCallback | Callable[[str], None] | None,
+    event: str,
+    index: int,
+    total: int,
+) -> None:
+    if callback is None:
+        return
+    try:
+        callback(event, index, total)  # type: ignore[misc]
+    except TypeError:
+        callback(event)  # type: ignore[misc]
+
 MISSING_VALUE_STRATEGIES: tuple[str, ...] = (
     "drop_rows",
     "fill_zero",
@@ -540,7 +559,7 @@ def compute_pycol_metrics(
     parallel_heom: bool = False,
     heom_n_jobs: int = 1,
     matrix_dtype: np.dtype | type = np.float64,
-    progress_callback: Callable[[str], None] | None = None,
+    progress_callback: PycolProgressCallback | Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     import os
 
@@ -571,21 +590,32 @@ def compute_pycol_metrics(
     if omitted_need_dist:
         out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
 
+    total_metrics = len(no_dist_metrics) + len(need_dist_metrics)
+    metrics_done = 0
+
+    def _metric_start(metric: str) -> None:
+        _invoke_pycol_progress(progress_callback, metric, metrics_done + 1, total_metrics)
+
+    def _metric_done(metric: str) -> None:
+        nonlocal metrics_done
+        metrics_done += 1
+        _invoke_pycol_progress(
+            progress_callback, f"done:{metric}", metrics_done, total_metrics
+        )
+
     if no_dist_metrics:
-        if progress_callback is not None:
-            progress_callback("__init__")
+        _invoke_pycol_progress(progress_callback, "__init__", 0, total_metrics)
         comp_fast = build_pycol_complexity(
             x, y, matrix_mode="skip", parallel_heom=False, heom_n_jobs=heom_n_jobs
         )
         for metric in no_dist_metrics:
-            if progress_callback is not None:
-                progress_callback(metric)
+            _metric_start(metric)
             out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_fast, metric)
+            _metric_done(metric)
         out["pycol_distance_matrix_skipped"] = True
 
     if need_dist_metrics:
-        if progress_callback is not None:
-            progress_callback("__init_dist__")
+        _invoke_pycol_progress(progress_callback, "__init_dist__", metrics_done, total_metrics)
         comp_dist = build_pycol_complexity(
             x,
             y,
@@ -599,9 +629,9 @@ def compute_pycol_metrics(
         if mode == "dist":
             out["pycol_heom_unnorm_skipped"] = True
         for metric in need_dist_metrics:
-            if progress_callback is not None:
-                progress_callback(metric)
+            _metric_start(metric)
             out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_dist, metric)
+            _metric_done(metric)
 
     return out
 
