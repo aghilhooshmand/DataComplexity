@@ -15,7 +15,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
-# Tuned for Hive: full sample, ALL PyCol metrics, layered HEOM (RAM / memmap float64).
+# Tuned for Hive: full sample, ALL PyCol metrics, HEOM matrices in RAM (float64).
 # ---------------------------------------------------------------------------
 LIBRARY="pycol"                    # pycol | pymfe | both
 # Worker cap for HEOM rows (--pycol-parallel-heom). Keep moderate (24–32) when preset=all
@@ -50,23 +50,15 @@ PYCOL_METRICS_ARG="all"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
-# Layered HEOM storage (auto, float64 both tiers — no float32):
-#   n ≤ threshold → RAM float64 (same as stock PyCol; fast)
-#   n > threshold → memmap float64 on disk (low peak RAM)
-# Threshold 8145 = agaricus_lepiota.csv — largest Hive run with all 29 PyCol metrics (preset=all).
-# Note: coil2000 (9822) completed but missing ICSV; not counted as full.
-PYCOL_MATRIX_STORAGE="auto"
+# HEOM matrices: always RAM float64 (stock PyCol precision).
 PYCOL_MATRIX_DTYPE="float64"
-PYCOL_MEMMAP_THRESHOLD_N="8145"
-PYCOL_MEMMAP_DIR="${SCRIPT_DIR}/results/pycol_memmap"
-# Per-dataset scratch subdirs (e.g. pycol_memmap/ring/) are removed when each CLI run finishes.
 
-# PyCol HEOM RAM tier (only when LIBRARY is pycol or both):
+# PyCol HEOM tier (only when LIBRARY is pycol or both):
 #   auto  — from preset: all → both matrices (dist + unnorm for T1/NSG/ICSV)
 #   skip | dist | both — force tier
 PYCOL_DISTANCE_MATRIX="auto"
 
-# Parallel HEOM row workers (RAM tier only; ignored when storage=memmap). "1" = on; "0" = serial.
+# Parallel HEOM row workers. "1" = on; "0" = serial.
 PYCOL_PARALLEL_HEOM="1"
 
 # Per-dataset row cap (optional 4th field in DATASETS): source|ref|label|max_rows
@@ -129,7 +121,6 @@ DATASETS=(
 # Run
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "${OUTPUT_CSV}")"
-mkdir -p "${PYCOL_MEMMAP_DIR}"
 
 if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
   if [[ "${PYCOL_METRICS_ARG}" == "custom" ]] && [[ -z "${PYCOL_CUSTOM_METRICS// /}" ]]; then
@@ -151,10 +142,7 @@ fi
 append_pycol_parallel_args() {
   if [[ "${LIBRARY}" == "pycol" || "${LIBRARY}" == "both" ]]; then
     cmd+=(--pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}")
-    cmd+=(--pycol-matrix-storage "${PYCOL_MATRIX_STORAGE}")
     cmd+=(--pycol-matrix-dtype "${PYCOL_MATRIX_DTYPE}")
-    cmd+=(--pycol-memmap-threshold-n "${PYCOL_MEMMAP_THRESHOLD_N}")
-    cmd+=(--pycol-memmap-dir "${PYCOL_MEMMAP_DIR}")
     if [[ "${PYCOL_PARALLEL_HEOM}" == "1" && "${PYCOL_DISTANCE_MATRIX}" != "skip" ]]; then
       cmd+=(--pycol-parallel-heom)
     fi
@@ -291,7 +279,7 @@ echo "Datasets: ${total}  Output: ${OUTPUT_CSV}" >&2
 echo "CONTINUE_ON_ERROR=${CONTINUE_ON_ERROR}" >&2
 echo "Logs: failures=${FAILURE_LOG}  run=${BATCH_RUN_LOG}  per-dataset=${BATCH_LOG_DIR}/" >&2
 if [[ "${LIBRARY}" == "pycol" ]] || [[ "${LIBRARY}" == "both" ]]; then
-  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  matrix: storage=${PYCOL_MATRIX_STORAGE} dtype=${PYCOL_MATRIX_DTYPE} memmap_n>${PYCOL_MEMMAP_THRESHOLD_N}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}  parallel metrics: ${PYCOL_PARALLEL_METRICS}  n_jobs: ${N_JOBS}  max_rows(default): ${COMPLEXITY_MAX_ROWS}" >&2
+  echo "PyCol metrics: ${PYCOL_METRICS_ARG}  matrix dtype: ${PYCOL_MATRIX_DTYPE}  distance matrix: ${PYCOL_DISTANCE_MATRIX}  parallel HEOM: ${PYCOL_PARALLEL_HEOM}  parallel metrics: ${PYCOL_PARALLEL_METRICS}  n_jobs: ${N_JOBS}  max_rows(default): ${COMPLEXITY_MAX_ROWS}" >&2
 fi
 
 i=0

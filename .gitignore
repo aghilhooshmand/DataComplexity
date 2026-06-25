@@ -2,7 +2,3 @@
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
-
-# PyCol memmap scratch (per-dataset subdirs + .dat files); keep empty dir in repo
-results/pycol_memmap/*
-!results/pycol_memmap/.gitkeep

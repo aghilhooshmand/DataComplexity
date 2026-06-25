@@ -25,15 +25,12 @@ OUTPUT_CSV="${OUTPUT_CSV:-${SCRIPT_DIR}/results/datasets_complexity_summary.csv}
 UPSERT_KEY="${UPSERT_KEY:-dataset_file}"
 FAILURE_LOG="${FAILURE_LOG:-${SCRIPT_DIR}/results/batch_failures.log}"
 BATCH_LOG_DIR="${BATCH_LOG_DIR:-${SCRIPT_DIR}/results/batch_logs}"
-PYCOL_MEMMAP_DIR="${PYCOL_MEMMAP_DIR:-${SCRIPT_DIR}/results/pycol_memmap}"
 MISSING_VALUES="${MISSING_VALUES:-impute_median}"
 LABEL_COLUMN="${LABEL_COLUMN:-target}"
 METRICS="${METRICS:-all}"
 COMPLEXITY_MAX_ROWS="${COMPLEXITY_MAX_ROWS:-0}"
 PYCOL_DISTANCE_MATRIX="${PYCOL_DISTANCE_MATRIX:-auto}"
-PYCOL_MATRIX_STORAGE="${PYCOL_MATRIX_STORAGE:-auto}"
 PYCOL_MATRIX_DTYPE="${PYCOL_MATRIX_DTYPE:-float64}"
-PYCOL_MEMMAP_THRESHOLD_N="${PYCOL_MEMMAP_THRESHOLD_N:-8145}"
 DRY_RUN="${DRY_RUN:-0}"
 
 usage() {
@@ -93,7 +90,7 @@ DATASET_ARG="$1"
 CSV_PATH="$(resolve_csv "${DATASET_ARG}")"
 DATASET_FILE="$(basename "${CSV_PATH}")"
 
-mkdir -p "$(dirname "${OUTPUT_CSV}")" "${PYCOL_MEMMAP_DIR}" "${BATCH_LOG_DIR}"
+mkdir -p "$(dirname "${OUTPUT_CSV}")" "${BATCH_LOG_DIR}"
 
 cmd=(
   "${PYTHON}" "${CLI}"
@@ -108,10 +105,7 @@ cmd=(
   --upsert-key "${UPSERT_KEY}"
   --failure-log "${FAILURE_LOG}"
   --pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}"
-  --pycol-matrix-storage "${PYCOL_MATRIX_STORAGE}"
   --pycol-matrix-dtype "${PYCOL_MATRIX_DTYPE}"
-  --pycol-memmap-threshold-n "${PYCOL_MEMMAP_THRESHOLD_N}"
-  --pycol-memmap-dir "${PYCOL_MEMMAP_DIR}"
 )
 
 if [[ -n "${COMPLEXITY_MAX_ROWS}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then

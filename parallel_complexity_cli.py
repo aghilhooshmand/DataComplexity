@@ -20,7 +20,6 @@ from complexity_core import (
     PycolMatrixMode,
     build_pycol_complexity,
     compute_pycol_metrics,
-    resolve_matrix_layer,
     get_all_pymfe_complexity_metrics,
     parse_pycol_metrics_selection,
     partition_pycol_metrics,
@@ -97,13 +96,12 @@ def _pycol_matrix_mode_for_metric(metric: str, run_mode: PycolMatrixMode) -> Pyc
 
 
 def pycol_metric_job(
-    args: tuple[np.ndarray, np.ndarray, str, bool, int, PycolMatrixMode, np.dtype, str, str | None],
+    args: tuple[np.ndarray, np.ndarray, str, bool, int, PycolMatrixMode, np.dtype],
 ) -> tuple[str, Any]:
-    x, y, metric, parallel_heom, heom_n_jobs, run_mode, matrix_dtype, matrix_storage, memmap_dir = args
+    x, y, metric, parallel_heom, heom_n_jobs, run_mode, matrix_dtype = args
 
     key = f"pycol_{metric}"
     mode = _pycol_matrix_mode_for_metric(metric, run_mode)
-    comp = None
     try:
         comp = build_pycol_complexity(
             x,
@@ -112,8 +110,6 @@ def pycol_metric_job(
             parallel_heom=parallel_heom and mode != "skip",
             heom_n_jobs=heom_n_jobs,
             matrix_dtype=matrix_dtype,
-            matrix_storage=matrix_storage,
-            memmap_dir=memmap_dir,
         )
         if not hasattr(comp, metric):
             return key, None
@@ -124,11 +120,6 @@ def pycol_metric_job(
         return key, (float(np.nanmean(arr)) if arr.size else None)
     except Exception:
         return key, None
-    finally:
-        if comp is not None and matrix_storage == "memmap":
-            from pycol_heom import cleanup_memmap_files
-
-            cleanup_memmap_files(comp.dist_matrix, comp.unnorm_dist_matrix)
 
 
 def pymfe_metric_job(args: tuple[np.ndarray, np.ndarray, str]) -> tuple[str, Any]:
@@ -182,8 +173,6 @@ def run_parallel_jobs(
     pycol_heom_n_jobs: int = 1,
     pycol_matrix_mode: PycolMatrixMode = "dist",
     pycol_matrix_dtype: np.dtype | type = np.float64,
-    pycol_matrix_storage: str = "ram",
-    pycol_memmap_dir: str | None = None,
 ) -> dict[str, Any]:
     if not metrics:
         return {}
@@ -191,9 +180,8 @@ def run_parallel_jobs(
         worker: Callable[..., tuple[str, Any]] = pycol_metric_job
         run_mode: PycolMatrixMode = pycol_matrix_mode
         dtype = np.dtype(pycol_matrix_dtype)
-        mm_dir = pycol_memmap_dir
         inputs = [
-            (x, y, m, bool(pycol_parallel_heom), int(pycol_heom_n_jobs), run_mode, dtype, pycol_matrix_storage, mm_dir)
+            (x, y, m, bool(pycol_parallel_heom), int(pycol_heom_n_jobs), run_mode, dtype)
             for m in metrics
         ]
     else:
@@ -475,37 +463,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--pycol-matrix-dtype",
-        choices=("auto", "float64", "float32"),
-        default="auto",
-        help=(
-            "Storage dtype for n×n HEOM matrices. auto: float64 for both RAM and memmap tiers. "
-            "float64 matches stock PyCol precision."
-        ),
-    )
-    parser.add_argument(
-        "--pycol-matrix-storage",
-        choices=("auto", "ram", "memmap"),
-        default="auto",
-        help=(
-            "Where to store HEOM matrices. auto: RAM float64 for n≤threshold, memmap float64 for larger n "
-            "(threshold default = largest Hive full-metrics success: agaricus_lepiota, n=8145)."
-        ),
-    )
-    parser.add_argument(
-        "--pycol-memmap-threshold-n",
-        type=int,
-        default=8_145,
-        metavar="N",
-        help=(
-            "When --pycol-matrix-storage=auto, use memmap above this row count (after cleaning). "
-            "Default 8145 = agaricus_lepiota.csv, largest run with all 29 PyCol metrics on Hive."
-        ),
-    )
-    parser.add_argument(
-        "--pycol-memmap-dir",
-        default=None,
-        metavar="DIR",
-        help="Directory for memmap matrix files (default: results/pycol_memmap next to output CSV).",
+        choices=("float64", "float32"),
+        default="float64",
+        help="Storage dtype for n×n HEOM matrices (float64 matches stock PyCol).",
     )
     parser.add_argument(
         "--no-progress",
@@ -557,30 +517,11 @@ def main() -> None:
         sys.exit(1)
 
 
-def _memmap_scratch_dir(args: argparse.Namespace, base: Path) -> Path:
-    """Per-dataset memmap scratch directory (removed after each CLI run)."""
-    if args.source == "csv":
-        stem = Path(args.ref).stem
-    else:
-        stem = re.sub(r"[^\w.-]+", "_", str(args.ref))[:120]
-    scratch = base / stem
-    scratch.mkdir(parents=True, exist_ok=True)
-    return scratch
-
-
 def _run_cli(args: argparse.Namespace) -> None:
-    memmap_scratch_holder: dict[str, Path | None] = {"dir": None}
-    try:
-        _run_cli_body(args, memmap_scratch_holder)
-    finally:
-        scratch = memmap_scratch_holder.get("dir")
-        if scratch is not None:
-            from pycol_heom import cleanup_memmap_dir
-
-            cleanup_memmap_dir(scratch, remove_dir=True)
+    _run_cli_body(args)
 
 
-def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Path | None]) -> None:
+def _run_cli_body(args: argparse.Namespace) -> None:
     run_pycol = args.library in ("pycol", "both")
     if run_pycol:
         pycol_arg_chk = (
@@ -653,30 +594,7 @@ def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Pat
         result["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
 
     n_jobs = int(max(1, args.n_jobs))
-
-    def _resolve_matrix_backend(n_rows: int) -> tuple[str, np.dtype, Path | None]:
-        storage = args.pycol_matrix_storage
-        dtype_arg = args.pycol_matrix_dtype
-        layer_storage, layer_dtype = resolve_matrix_layer(
-            n_rows,
-            memmap_threshold_n=int(args.pycol_memmap_threshold_n),
-        )
-        if storage == "auto":
-            storage = layer_storage
-        if dtype_arg == "auto":
-            matrix_dtype = layer_dtype
-        else:
-            matrix_dtype = np.dtype(dtype_arg)
-        memmap_dir: Path | None = None
-        if storage == "memmap":
-            if args.pycol_memmap_dir:
-                base = Path(args.pycol_memmap_dir)
-            else:
-                base = Path(args.output_csv).resolve().parent / "pycol_memmap"
-            base.mkdir(parents=True, exist_ok=True)
-            memmap_scratch_holder["dir"] = _memmap_scratch_dir(args, base)
-            memmap_dir = memmap_scratch_holder["dir"]
-        return storage, matrix_dtype, memmap_dir
+    matrix_dtype = np.dtype(args.pycol_matrix_dtype)
 
     if run_pycol:
         pycol_arg = args.metrics if args.library == "pycol" else args.pycol_metrics
@@ -690,11 +608,8 @@ def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Pat
             override=args.pycol_distance_matrix,
         )
         result["pycol_matrix_mode"] = pycol_matrix_mode
-        matrix_storage, matrix_dtype, memmap_dir = _resolve_matrix_backend(int(x_met.shape[0]))
         result["pycol_matrix_dtype"] = str(matrix_dtype)
-        result["pycol_matrix_storage"] = matrix_storage
-        if matrix_storage == "memmap":
-            result["pycol_memmap_dir"] = str(memmap_dir)
+        result["pycol_matrix_storage"] = "ram"
         result["pycol_skip_distance_matrix"] = pycol_matrix_mode == "skip"
         no_dist_part, need_dist_omitted = partition_pycol_metrics(pycol_metrics)
         if pycol_matrix_mode == "skip":
@@ -713,7 +628,7 @@ def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Pat
         if use_sequential_pycol:
             phase(
                 f"PyCol: computing {len(pycol_metrics_run)} metric(s) sequentially "
-                f"(single Complexity, n={n_pycol}, storage={matrix_storage}, dtype={matrix_dtype}) …"
+                f"(single Complexity, n={n_pycol}, dtype={matrix_dtype}) …"
             )
             if show_progress:
                 def _pycol_prog(m: str) -> None:
@@ -735,12 +650,9 @@ def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Pat
                     matrix_mode=pycol_matrix_mode,
                     preset=pycol_preset,
                     parallel_heom=bool(args.pycol_parallel_heom)
-                    and pycol_matrix_mode != "skip"
-                    and matrix_storage == "ram",
+                    and pycol_matrix_mode != "skip",
                     heom_n_jobs=n_jobs,
                     matrix_dtype=matrix_dtype,
-                    matrix_storage=matrix_storage,
-                    memmap_dir=memmap_dir,
                     progress_callback=prog_cb,
                 )
             )
@@ -757,13 +669,10 @@ def _run_cli_body(args: argparse.Namespace, memmap_scratch_holder: dict[str, Pat
                     show_progress=show_progress,
                     desc="pycol",
                     pycol_parallel_heom=bool(args.pycol_parallel_heom)
-                    and pycol_matrix_mode != "skip"
-                    and matrix_storage == "ram",
+                    and pycol_matrix_mode != "skip",
                     pycol_heom_n_jobs=n_jobs,
                     pycol_matrix_mode=pycol_matrix_mode,
                     pycol_matrix_dtype=matrix_dtype,
-                    pycol_matrix_storage=matrix_storage,
-                    pycol_memmap_dir=str(memmap_dir) if memmap_dir else None,
                 )
             )
         step("      PyCol done.")

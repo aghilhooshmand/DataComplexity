@@ -461,26 +461,6 @@ def _init_pycol_complexity_shell(
     return comp
 
 
-def resolve_matrix_layer(
-    n_rows: int,
-    *,
-    memmap_threshold_n: int = 8_145,
-    small_storage: str = "ram",
-    small_dtype: np.dtype | type = np.float64,
-    large_storage: str = "memmap",
-    large_dtype: np.dtype | type = np.float64,
-) -> tuple[str, np.dtype]:
-    """
-    Choose matrix storage/dtype from row count.
-
-    Default threshold 8145: largest dataset with every PyCol metric computed (all 29;
-    agaricus_lepiota.csv on Hive). n ≤ threshold → RAM float64; n > threshold → memmap float64.
-    """
-    if int(n_rows) > int(memmap_threshold_n):
-        return str(large_storage), np.dtype(large_dtype)
-    return str(small_storage), np.dtype(small_dtype)
-
-
 def build_pycol_complexity(
     x: np.ndarray,
     y: np.ndarray,
@@ -490,8 +470,6 @@ def build_pycol_complexity(
     parallel_heom: bool = False,
     heom_n_jobs: int = 1,
     matrix_dtype: np.dtype | type = np.float64,
-    matrix_storage: str = "ram",
-    memmap_dir: Path | str | None = None,
 ) -> Any:
     """
     Construct a PyCol ``Complexity`` instance from in-memory arrays.
@@ -499,7 +477,7 @@ def build_pycol_complexity(
     ``matrix_mode``: ``skip`` | ``dist`` (normalized matrix only) | ``both``.
     Legacy ``skip_distance_matrix=True`` forces ``skip`` when ``matrix_mode`` not set.
 
-    Uses :mod:`pycol_heom` (vectorized HEOM). ``parallel_heom=True`` enables row workers (RAM only).
+    Uses :mod:`pycol_heom` (vectorized HEOM). ``parallel_heom=True`` enables row workers.
     """
     from pycol_complexity import complexity as pycol_complexity
 
@@ -524,9 +502,7 @@ def build_pycol_complexity(
 
     shell = pycol_complexity.Complexity.__new__(pycol_complexity.Complexity)
     meta = shell.is_categorical(np.array(x_f))
-    storage = matrix_storage if matrix_storage in ("ram", "memmap") else "ram"
-    heom_parallel = bool(parallel_heom) and storage == "ram"
-    n_jobs = max(1, int(heom_n_jobs)) if heom_parallel else 1
+    n_jobs = max(1, int(heom_n_jobs)) if parallel_heom else 1
     compute_unnorm = mode == "both"
     dist, unnorm = build_heom_distance_matrices(
         x_f,
@@ -534,8 +510,6 @@ def build_pycol_complexity(
         n_jobs=n_jobs,
         compute_unnorm=compute_unnorm,
         matrix_dtype=matrix_dtype,
-        storage=storage,  # type: ignore[arg-type]
-        memmap_dir=memmap_dir,
     )
     return _init_pycol_complexity_shell(
         pycol_complexity, x_f, y_a, dist_matrix=dist, unnorm_dist_matrix=unnorm
@@ -566,11 +540,8 @@ def compute_pycol_metrics(
     parallel_heom: bool = False,
     heom_n_jobs: int = 1,
     matrix_dtype: np.dtype | type = np.float64,
-    matrix_storage: str = "ram",
-    memmap_dir: Path | str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    from pycol_heom import cleanup_memmap_files
     import os
 
     # PyCol + numpy/scipy can spawn many BLAS threads; cap to reduce frozen UI / oversubscription.
@@ -595,7 +566,7 @@ def compute_pycol_metrics(
     out: dict[str, Any] = {
         "pycol_matrix_mode": mode,
         "pycol_matrix_dtype": str(np.dtype(matrix_dtype)),
-        "pycol_matrix_storage": matrix_storage,
+        "pycol_matrix_storage": "ram",
     }
     if omitted_need_dist:
         out["pycol_metrics_omitted_need_distance"] = ",".join(omitted_need_dist)
@@ -615,30 +586,22 @@ def compute_pycol_metrics(
     if need_dist_metrics:
         if progress_callback is not None:
             progress_callback("__init_dist__")
-        comp_dist = None
-        try:
-            comp_dist = build_pycol_complexity(
-                x,
-                y,
-                matrix_mode=mode,
-                parallel_heom=parallel_heom,
-                heom_n_jobs=heom_n_jobs,
-                matrix_dtype=matrix_dtype,
-                matrix_storage=matrix_storage,
-                memmap_dir=memmap_dir,
-            )
-            if parallel_heom and matrix_storage == "ram":
-                out["pycol_heom_parallel"] = True
-            if mode == "dist":
-                out["pycol_heom_unnorm_skipped"] = True
-            for metric in need_dist_metrics:
-                if progress_callback is not None:
-                    progress_callback(metric)
-                out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_dist, metric)
-        finally:
-            if comp_dist is not None and matrix_storage == "memmap":
-                cleanup_memmap_files(comp_dist.dist_matrix, comp_dist.unnorm_dist_matrix)
-                comp_dist = None
+        comp_dist = build_pycol_complexity(
+            x,
+            y,
+            matrix_mode=mode,
+            parallel_heom=parallel_heom,
+            heom_n_jobs=heom_n_jobs,
+            matrix_dtype=matrix_dtype,
+        )
+        if parallel_heom:
+            out["pycol_heom_parallel"] = True
+        if mode == "dist":
+            out["pycol_heom_unnorm_skipped"] = True
+        for metric in need_dist_metrics:
+            if progress_callback is not None:
+                progress_callback(metric)
+            out[f"pycol_{metric}"] = _evaluate_pycol_metric(comp_dist, metric)
 
     return out
 
