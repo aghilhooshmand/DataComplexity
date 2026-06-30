@@ -23,8 +23,7 @@ fi
 # Defaults (override via env if needed)
 OUTPUT_CSV="${OUTPUT_CSV:-${SCRIPT_DIR}/results/datasets_complexity_summary.csv}"
 UPSERT_KEY="${UPSERT_KEY:-dataset_file}"
-FAILURE_LOG="${FAILURE_LOG:-${SCRIPT_DIR}/results/batch_failures.log}"
-BATCH_LOG_DIR="${BATCH_LOG_DIR:-${SCRIPT_DIR}/results/batch_logs}"
+LOG_DIR="${LOG_DIR:-${SCRIPT_DIR}/results/logs}"
 MISSING_VALUES="${MISSING_VALUES:-impute_median}"
 LABEL_COLUMN="${LABEL_COLUMN:-target}"
 METRICS="${METRICS:-all}"
@@ -41,7 +40,8 @@ Usage: $(basename "$0") <dataset>
              (file must exist under ${PMLB_DIR}/)
 
 Serial PyCol: n_jobs=1, no parallel HEOM, no parallel metrics.
-Results append to: ${OUTPUT_CSV}
+Results: ${OUTPUT_CSV}
+Log:     ${LOG_DIR}/<dataset>.csv.log  (one file per dataset; stdout + errors)
 
 Options:
   --list     print available *.csv names in pmlb_DS/
@@ -89,8 +89,9 @@ esac
 DATASET_ARG="$1"
 CSV_PATH="$(resolve_csv "${DATASET_ARG}")"
 DATASET_FILE="$(basename "${CSV_PATH}")"
+DS_LOG="${LOG_DIR}/${DATASET_FILE}.log"
 
-mkdir -p "$(dirname "${OUTPUT_CSV}")" "${BATCH_LOG_DIR}"
+mkdir -p "$(dirname "${OUTPUT_CSV}")" "${LOG_DIR}"
 
 cmd=(
   "${PYTHON}" "${CLI}"
@@ -103,7 +104,7 @@ cmd=(
   --missing-values "${MISSING_VALUES}"
   --output-csv "${OUTPUT_CSV}"
   --upsert-key "${UPSERT_KEY}"
-  --failure-log "${FAILURE_LOG}"
+  --failure-log "${DS_LOG}"
   --pycol-distance-matrix "${PYCOL_DISTANCE_MATRIX}"
   --pycol-matrix-dtype "${PYCOL_MATRIX_DTYPE}"
 )
@@ -114,6 +115,7 @@ fi
 
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
+echo "Log:     ${DS_LOG}" >&2
 echo "Mode:    serial PyCol (n_jobs=1); per-metric progress on stderr" >&2
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -122,7 +124,6 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   exit 0
 fi
 
-ds_log="${BATCH_LOG_DIR}/${DATASET_FILE}.log"
 started_at="$(date -Iseconds)"
 started_epoch="${SECONDS}"
 
@@ -131,10 +132,10 @@ started_epoch="${SECONDS}"
   printf '%q ' "${cmd[@]}"
   echo
   echo ""
-} >>"${ds_log}"
+} >>"${DS_LOG}"
 
 set +e
-"${cmd[@]}" 2>&1 | tee -a "${ds_log}" >&2
+"${cmd[@]}" 2>&1 | tee -a "${DS_LOG}" >&2
 code=${PIPESTATUS[0]}
 set -e
 elapsed="$((SECONDS - started_epoch))"
@@ -142,11 +143,11 @@ elapsed="$((SECONDS - started_epoch))"
 {
   echo ""
   echo "========== END $(date -Iseconds) exit=${code} elapsed=${elapsed}s =========="
-} >>"${ds_log}"
+} >>"${DS_LOG}"
 
 if [[ "${code}" -ne 0 ]]; then
-  echo "FAILED (exit ${code}): ${DATASET_FILE}" >&2
+  echo "FAILED (exit ${code}): ${DATASET_FILE} — see ${DS_LOG}" >&2
   exit "${code}"
 fi
 
-echo "OK: ${DATASET_FILE} (${elapsed}s)" >&2
+echo "OK: ${DATASET_FILE} (${elapsed}s) — log: ${DS_LOG}" >&2

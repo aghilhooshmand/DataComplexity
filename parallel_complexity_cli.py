@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import multiprocessing as mp
 import re
 import sys
@@ -118,7 +119,9 @@ def pycol_metric_job(
             return key, float(val)
         arr = np.asarray(val, dtype=float)
         return key, (float(np.nanmean(arr)) if arr.size else None)
-    except Exception:
+    except Exception as exc:
+        logger = logging.getLogger(__name__)
+        logger.warning("PyCol metric %r failed in worker: %s: %s", metric, type(exc).__name__, exc)
         return key, None
 
 
@@ -438,6 +441,79 @@ def make_pycol_checkpoint_saver(
     return _save
 
 
+def list_pycol_metric_status(
+    row: dict[str, Any], metrics: list[str]
+) -> tuple[list[str], list[str]]:
+    """Return (completed, pending) metric base names."""
+    done = [m for m in metrics if pycol_metric_is_done(row, m)]
+    pending = [m for m in metrics if m not in done]
+    return done, pending
+
+
+def make_pycol_metric_failure_logger(
+    failure_log: Path | None,
+    *,
+    dataset_label: str,
+    failed: list[str],
+) -> Callable[[str, BaseException], None]:
+    """Append per-metric PyCol failures to ``failure_log`` and track names in ``failed``."""
+
+    def _on_failure(metric: str, exc: BaseException) -> None:
+        failed.append(metric)
+        append_failure_log(
+            failure_log,
+            "\n".join(
+                [
+                    f"========== PyCol metric failed {dataset_label} ==========",
+                    f"metric: {metric}",
+                    f"error: {type(exc).__name__}: {exc}",
+                    "",
+                ]
+            ),
+        )
+
+    return _on_failure
+
+
+def record_pycol_interrupt(
+    *,
+    failure_log: Path | None,
+    dataset_label: str,
+    result: dict[str, Any],
+    metrics_run: list[str],
+    phase: str,
+    ref: str,
+    source: str,
+    output_csv: Path,
+    upsert_key: str,
+) -> None:
+    """Log and persist partial PyCol progress after KeyboardInterrupt."""
+    done, pending = list_pycol_metric_status(result, metrics_run)
+    result["pycol_run_interrupted"] = True
+    if done:
+        result["pycol_metrics_completed"] = ",".join(done)
+    if pending:
+        result["pycol_metrics_pending"] = ",".join(pending)
+    lines = [
+        f"========== INTERRUPTED {dataset_label} ==========",
+        f"ref: {ref}",
+        f"source: {source}",
+        f"phase: {phase}",
+        f"completed ({len(done)}): {', '.join(done) if done else '(none)'}",
+        f"pending ({len(pending)}): {', '.join(pending) if pending else '(none)'}",
+        "Re-run the same command to resume (metrics already in CSV are skipped).",
+        "",
+    ]
+    msg = "\n".join(lines)
+    append_failure_log(failure_log, msg)
+    print(msg, file=sys.stderr, flush=True)
+    try:
+        save_result_checkpoint(output_csv, result, key_col=upsert_key)
+        print(f"Saved partial row to: {output_csv}", file=sys.stderr, flush=True)
+    except Exception as write_exc:
+        print(f"Could not save partial row: {write_exc}", file=sys.stderr, flush=True)
+
+
 def append_failure_log(path: Path | None, message: str) -> None:
     if path is None:
         return
@@ -645,14 +721,23 @@ def main() -> None:
         "--failure-log",
         default=None,
         metavar="PATH",
-        help="Append fatal errors (message + traceback) to this log file.",
+        help=(
+            "Append fatal errors, Ctrl+C interrupts (completed vs pending metrics), "
+            "and per-metric PyCol failures to this log file."
+        ),
     )
     args = parser.parse_args()
 
     try:
         _run_cli(args)
     except KeyboardInterrupt:
-        raise
+        print(
+            "\nInterrupted. Partial PyCol metrics (if any) were checkpointed to --output-csv; "
+            "see --failure-log for completed vs pending.",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(130)
     except Exception as exc:
         tb = traceback.format_exc()
         err_line = f"{type(exc).__name__}: {exc}"
@@ -821,59 +906,83 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         checkpoint = make_pycol_checkpoint_saver(
             out_path, result, key_col=args.upsert_key
         )
+        failure_log = Path(args.failure_log) if args.failure_log else None
+        ds_label = Path(args.ref).name if args.source == "csv" else str(dataset_name)
+        failed_metrics: list[str] = []
+        on_metric_failure = make_pycol_metric_failure_logger(
+            failure_log, dataset_label=ds_label, failed=failed_metrics
+        )
 
         n_pycol = int(x_met.shape[0])
         use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
-        if not pending_metrics:
-            step("      PyCol: all metrics already saved in CSV — nothing to compute.")
-        elif use_sequential_pycol:
-            phase(
-                f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
-                f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
-                f"dtype={matrix_dtype}) …"
-            )
-            prog_cb = make_pycol_progress_callback(
-                show_progress, initial_completed=len(already_done)
-            )
-            result.update(
-                compute_pycol_metrics(
-                    x_met,
-                    y_met,
-                    pycol_metrics_run,
-                    matrix_mode=pycol_matrix_mode,
-                    preset=pycol_preset,
-                    parallel_heom=bool(args.pycol_parallel_heom)
-                    and pycol_matrix_mode != "skip",
-                    heom_n_jobs=n_jobs,
-                    matrix_dtype=matrix_dtype,
-                    progress_callback=prog_cb,
-                    existing_pycol=existing_row if not args.pycol_no_resume else None,
-                    on_metric_complete=checkpoint,
+        try:
+            if not pending_metrics:
+                step("      PyCol: all metrics already saved in CSV — nothing to compute.")
+            elif use_sequential_pycol:
+                phase(
+                    f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
+                    f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
+                    f"dtype={matrix_dtype}) …"
                 )
-            )
-            result["pycol_sequential_large_n"] = True
-        else:
-            phase(
-                f"PyCol: computing {len(pending_metrics)} metric(s) in parallel "
-                f"({len(already_done)} already saved) …"
-            )
-            result.update(
-                run_parallel_jobs(
-                    "pycol",
-                    x_met,
-                    y_met,
-                    pending_metrics,
-                    n_jobs,
-                    show_progress=show_progress,
-                    desc="pycol",
-                    pycol_parallel_heom=bool(args.pycol_parallel_heom)
-                    and pycol_matrix_mode != "skip",
-                    pycol_heom_n_jobs=n_jobs,
-                    pycol_matrix_mode=pycol_matrix_mode,
-                    pycol_matrix_dtype=matrix_dtype,
-                    on_metric_complete=checkpoint,
+                prog_cb = make_pycol_progress_callback(
+                    show_progress, initial_completed=len(already_done)
                 )
+                result.update(
+                    compute_pycol_metrics(
+                        x_met,
+                        y_met,
+                        pycol_metrics_run,
+                        matrix_mode=pycol_matrix_mode,
+                        preset=pycol_preset,
+                        parallel_heom=bool(args.pycol_parallel_heom)
+                        and pycol_matrix_mode != "skip",
+                        heom_n_jobs=n_jobs,
+                        matrix_dtype=matrix_dtype,
+                        progress_callback=prog_cb,
+                        existing_pycol=existing_row if not args.pycol_no_resume else None,
+                        on_metric_complete=checkpoint,
+                        on_metric_failure=on_metric_failure,
+                    )
+                )
+                result["pycol_sequential_large_n"] = True
+            else:
+                phase(
+                    f"PyCol: computing {len(pending_metrics)} metric(s) in parallel "
+                    f"({len(already_done)} already saved) …"
+                )
+                result.update(
+                    run_parallel_jobs(
+                        "pycol",
+                        x_met,
+                        y_met,
+                        pending_metrics,
+                        n_jobs,
+                        show_progress=show_progress,
+                        desc="pycol",
+                        pycol_parallel_heom=bool(args.pycol_parallel_heom)
+                        and pycol_matrix_mode != "skip",
+                        pycol_heom_n_jobs=n_jobs,
+                        pycol_matrix_mode=pycol_matrix_mode,
+                        pycol_matrix_dtype=matrix_dtype,
+                        on_metric_complete=checkpoint,
+                    )
+                )
+        except KeyboardInterrupt:
+            record_pycol_interrupt(
+                failure_log=failure_log,
+                dataset_label=ds_label,
+                result=result,
+                metrics_run=pycol_metrics_run,
+                phase="pycol",
+                ref=args.ref,
+                source=args.source,
+                output_csv=out_path,
+                upsert_key=args.upsert_key,
             )
+            raise
+
+        if failed_metrics:
+            result["pycol_metrics_failed"] = ",".join(dict.fromkeys(failed_metrics))
         step("      PyCol done.")
 
     if run_pymfe:

@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 import numpy as np
 import pandas as pd
 from sklearn.manifold import TSNE
@@ -535,7 +539,12 @@ def build_pycol_complexity(
     )
 
 
-def _evaluate_pycol_metric(comp: Any, metric: str) -> Any:
+def _evaluate_pycol_metric(
+    comp: Any,
+    metric: str,
+    *,
+    on_failure: Callable[[str, BaseException], None] | None = None,
+) -> Any:
     if not hasattr(comp, metric):
         return None
     try:
@@ -544,7 +553,10 @@ def _evaluate_pycol_metric(comp: Any, metric: str) -> Any:
             return float(val)
         arr = np.asarray(val, dtype=float)
         return float(np.nanmean(arr)) if arr.size else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("PyCol metric %r failed: %s: %s", metric, type(exc).__name__, exc)
+        if on_failure is not None:
+            on_failure(metric, exc)
         return None
 
 
@@ -562,6 +574,7 @@ def compute_pycol_metrics(
     progress_callback: PycolProgressCallback | Callable[[str], None] | None = None,
     existing_pycol: dict[str, Any] | None = None,
     on_metric_complete: Callable[[str, Any], None] | None = None,
+    on_metric_failure: Callable[[str, BaseException], None] | None = None,
 ) -> dict[str, Any]:
     import os
 
@@ -644,7 +657,10 @@ def compute_pycol_metrics(
         )
         for metric in no_dist_pending:
             _metric_start(metric)
-            _metric_done(metric, _evaluate_pycol_metric(comp_fast, metric))
+            _metric_done(
+                metric,
+                _evaluate_pycol_metric(comp_fast, metric, on_failure=on_metric_failure),
+            )
     elif no_dist_metrics and not no_dist_pending and not need_dist_pending:
         out["pycol_distance_matrix_skipped"] = True
     elif no_dist_metrics and not need_dist_metrics:
@@ -666,7 +682,10 @@ def compute_pycol_metrics(
             out["pycol_heom_unnorm_skipped"] = True
         for metric in need_dist_pending:
             _metric_start(metric)
-            _metric_done(metric, _evaluate_pycol_metric(comp_dist, metric))
+            _metric_done(
+                metric,
+                _evaluate_pycol_metric(comp_dist, metric, on_failure=on_metric_failure),
+            )
 
     return out
 
