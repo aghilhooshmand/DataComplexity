@@ -58,6 +58,9 @@ st.markdown(
 - **`Metric Reference`**  
   PyCol overlap taxonomy (from [pycol](https://github.com/miriamspsantos/pycol/blob/doc/README.md)), **illustration PDFs**, **sample datasets** (add to comparison), and app metric tables.
 
+- **`Complexity Dashboard`**  
+  Explore **`results/datasets_complexity_summary.csv`**: filters, completeness overview, scatter plots, correlation heatmap, and multi-dataset metric comparisons.
+
 - **`PMLB Benchmark`**  
   Browse [PMLB](https://github.com/EpistasisLab/pmlb) datasets in `pmlb_DS/`, view metadata and **pre-computed PyCol metrics** (`datasets_complexity_summary.csv`), compare datasets, and optional t-SNE.
 
