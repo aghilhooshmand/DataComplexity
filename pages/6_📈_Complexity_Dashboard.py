@@ -18,6 +18,8 @@ from summary_dashboard import (
     _label_missing,
     enrich_summary,
     filter_summary,
+    infer_metadata_numeric_columns,
+    metadata_column_label,
     resolve_complexity_summary_path,
     summary_kpis,
 )
@@ -249,6 +251,7 @@ df = filter_summary(
 )
 
 metric_cols = infer_comparison_metric_columns(df)
+metadata_cols = infer_metadata_numeric_columns(df)
 kpis = summary_kpis(df)
 
 m0, m1, m2, m3, m4, m5 = st.columns(6)
@@ -269,7 +272,31 @@ with tab_overview:
         _plot_histogram(df["completeness_pct"], title="Completeness distribution", xlabel="Metrics filled (%)")
     with c2:
         if rows_col in df.columns:
-            _plot_histogram(_numeric_series(df, rows_col), title="Row count distribution", xlabel=rows_col)
+            _plot_histogram(
+                _numeric_series(df, rows_col),
+                title="Row count distribution",
+                xlabel=metadata_column_label(rows_col),
+            )
+
+    if metadata_cols:
+        meta_hist = st.multiselect(
+            "Dataset metadata distributions",
+            metadata_cols,
+            default=[c for c in (rows_col, feat_col, "n_columns_original", "n_classes") if c in metadata_cols][:4],
+            format_func=metadata_column_label,
+            key="dash_overview_meta_hist",
+        )
+        if meta_hist:
+            ncol = min(2, len(meta_hist))
+            for i in range(0, len(meta_hist), ncol):
+                cols = st.columns(ncol)
+                for col_widget, col_name in zip(cols, meta_hist[i : i + ncol]):
+                    with col_widget:
+                        _plot_histogram(
+                            _numeric_series(df, col_name),
+                            title=metadata_column_label(col_name),
+                            xlabel=col_name,
+                        )
 
     c3, c4 = st.columns(2)
     with c3:
@@ -396,23 +423,67 @@ with tab_compare:
 
 with tab_charts:
     c1, c2, c3 = st.columns(3)
+    axis_choices = metadata_cols + metric_cols
     x_col = c1.selectbox(
         "X axis",
-        [rows_col, feat_col, "n_classes", "completeness_pct"] + metric_cols,
+        axis_choices,
+        index=axis_choices.index(rows_col) if rows_col in axis_choices else 0,
+        format_func=lambda c: metadata_column_label(c) if c in metadata_cols else c,
         key="dash_x",
     )
+    y_default = metric_cols[0] if metric_cols else (feat_col if feat_col in axis_choices else axis_choices[0])
     y_col = c2.selectbox(
         "Y axis",
-        metric_cols + [rows_col, feat_col, "n_classes"],
-        index=0 if metric_cols else 0,
+        axis_choices,
+        index=axis_choices.index(y_default) if y_default in axis_choices else 0,
+        format_func=lambda c: metadata_column_label(c) if c in metadata_cols else c,
         key="dash_y",
     )
-    color_opts = ["(none)"] + [c for c in ("n_classes", "completeness_pct", rows_col, feat_col) if c in df.columns]
-    color_opts += metric_cols
-    color_pick = c3.selectbox("Color", color_opts, key="dash_color")
+    color_opts = ["(none)"] + metadata_cols + metric_cols
+    color_pick = c3.selectbox(
+        "Color",
+        color_opts,
+        format_func=lambda c: "(none)" if c == "(none)" else (
+            metadata_column_label(c) if c in metadata_cols else c
+        ),
+        key="dash_color",
+    )
     color_col = None if color_pick == "(none)" else color_pick
-    _plot_scatter(df, x_col=x_col, y_col=y_col, color_col=color_col, title=f"{x_col} vs {y_col}")
+    x_title = metadata_column_label(x_col) if x_col in metadata_cols else x_col
+    y_title = metadata_column_label(y_col) if y_col in metadata_cols else y_col
+    _plot_scatter(df, x_col=x_col, y_col=y_col, color_col=color_col, title=f"{x_title} vs {y_title}")
 
-    if metric_cols:
-        hist_metric = st.selectbox("Metric histogram", metric_cols, key="dash_hist_metric")
-        _plot_histogram(_numeric_series(df, hist_metric), title=f"Distribution of {hist_metric}", xlabel=hist_metric)
+    st.subheader("Distributions")
+    hist_kind = st.radio(
+        "Histogram type",
+        ["Dataset metadata", "Complexity metrics"],
+        horizontal=True,
+        key="dash_hist_kind",
+    )
+    if hist_kind == "Dataset metadata":
+        hist_options = metadata_cols
+        hist_default = (
+            "n_columns_original"
+            if "n_columns_original" in hist_options
+            else (rows_col if rows_col in hist_options else (hist_options[0] if hist_options else None))
+        )
+    else:
+        hist_options = metric_cols
+        hist_default = "pycol_F1" if "pycol_F1" in hist_options else (hist_options[0] if hist_options else None)
+
+    if hist_options and hist_default:
+        hist_col = st.selectbox(
+            "Column",
+            hist_options,
+            index=hist_options.index(hist_default),
+            format_func=lambda c: metadata_column_label(c) if c in metadata_cols else c,
+            key="dash_hist_col",
+        )
+        hist_title = metadata_column_label(hist_col) if hist_col in metadata_cols else hist_col
+        _plot_histogram(
+            _numeric_series(df, hist_col),
+            title=f"Distribution of {hist_title}",
+            xlabel=hist_col,
+        )
+    else:
+        st.info("No plottable columns for this histogram type.")

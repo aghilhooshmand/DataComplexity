@@ -64,6 +64,78 @@ def _label_missing(series: pd.Series) -> pd.Series:
     return out.mask(series.isna() | (out == "") | (out.str.lower() == "nan"), "(missing)")
 
 
+_METADATA_NUMERIC_PREFERRED: tuple[str, ...] = (
+    "n_rows_used",
+    "n_rows_original",
+    "n_columns_original",
+    "n_features_after_encoding",
+    "n_features_raw",
+    "n_classes",
+    "majority_class_fraction",
+    "completeness_pct",
+    "metrics_filled",
+    "metrics_total",
+    "n_jobs",
+)
+
+_METADATA_COLUMN_LABELS: dict[str, str] = {
+    "n_rows_used": "Rows used (after cleaning)",
+    "n_rows_original": "Rows (original)",
+    "n_columns_original": "Columns (original, incl. label)",
+    "n_features_after_encoding": "Features (after encoding)",
+    "n_features_raw": "Features (raw)",
+    "n_classes": "Number of classes",
+    "majority_class_fraction": "Majority class fraction",
+    "completeness_pct": "Metric completeness (%)",
+    "metrics_filled": "PyCol metrics filled (count)",
+    "metrics_total": "PyCol metrics total (count)",
+    "n_jobs": "CLI n_jobs",
+}
+
+
+def metadata_column_label(col: str) -> str:
+    return _METADATA_COLUMN_LABELS.get(col, col.replace("_", " "))
+
+
+def infer_metadata_numeric_columns(df: pd.DataFrame) -> list[str]:
+    """Numeric dataset profile / run metadata columns (not pycol_* / pymfe_* metrics)."""
+    skip = frozenset(
+        {
+            "display_name",
+            "dataset_file",
+            "dataset_name",
+            "dataset",
+            "error",
+            "label_column",
+            "missing_values",
+            "source",
+            "parallel_cli_version",
+            "pycol_matrix_dtype",
+            "pycol_matrix_mode",
+            "pycol_matrix_storage",
+            "pycol_metrics_preset",
+            "pymfe_groups_used",
+            "is_binary",
+        }
+    )
+    out: list[str] = []
+    for col in _METADATA_NUMERIC_PREFERRED:
+        if col not in df.columns or col in skip:
+            continue
+        ser = pd.to_numeric(df[col], errors="coerce")
+        if ser.notna().any():
+            out.append(col)
+    for col in df.columns:
+        if col in skip or col in out:
+            continue
+        if str(col).startswith(("pycol_", "pymfe_")):
+            continue
+        ser = pd.to_numeric(df[col], errors="coerce")
+        if ser.notna().sum() >= max(3, len(df) // 10):
+            out.append(col)
+    return out
+
+
 def filter_summary(
     df: pd.DataFrame,
     *,
