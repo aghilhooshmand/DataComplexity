@@ -324,6 +324,13 @@ def _is_boolish(val: Any) -> bool:
     return isinstance(val, (bool, np.bool_))
 
 
+def _is_string_like_dtype(dtype: Any) -> bool:
+    if pd.api.types.is_string_dtype(dtype):
+        return True
+    name = str(dtype)
+    return name.startswith("string") or name == "str"
+
+
 def _coerce_value_for_column(val: Any, series: pd.Series) -> Any:
     """Make ``val`` storable in ``series`` without pandas dtype errors."""
     if pd.api.types.is_bool_dtype(series.dtype):
@@ -333,12 +340,29 @@ def _coerce_value_for_column(val: Any, series: pd.Series) -> Any:
     if _is_boolish(val):
         if pd.api.types.is_numeric_dtype(series.dtype):
             return float(int(val))
+        if _is_string_like_dtype(series.dtype) or series.dtype == object:
+            return str(bool(val))
         return bool(val)
     if isinstance(val, (np.integer,)):
         return int(val)
     if isinstance(val, (np.floating,)):
         return float(val)
+    if _is_string_like_dtype(series.dtype) and val is not None and not pd.isna(val):
+        return str(val)
     return val
+
+
+def _assign_upsert_cell(df: pd.DataFrame, idx: int, col: str, val: Any) -> None:
+    """Set one cell on an upsert row, relaxing dtype if pandas rejects the value."""
+    _ensure_column_for_upsert(df, col, val)
+    if col not in df.columns:
+        return
+    coerced = _coerce_value_for_column(val, df[col])
+    try:
+        df.at[idx, col] = coerced
+    except (TypeError, ValueError):
+        df[col] = df[col].astype(object)
+        df.at[idx, col] = coerced
 
 
 def _ensure_column_for_upsert(df: pd.DataFrame, col: str, sample_val: Any) -> None:
@@ -578,10 +602,7 @@ def upsert_result_row(output_csv: Path, result: dict[str, Any], key_col: str = "
     if mask.any():
         idx = existing.index[mask][0]
         for col, val in row.items():
-            _ensure_column_for_upsert(existing, col, val)
-            if col in existing.columns:
-                val = _coerce_value_for_column(val, existing[col])
-            existing.at[idx, col] = val
+            _assign_upsert_cell(existing, idx, col, val)
         return existing
 
     new_row_df = pd.DataFrame([row])
