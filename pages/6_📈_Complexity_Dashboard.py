@@ -15,6 +15,7 @@ from metric_ui import (
 from results_export import render_save_results_section
 from summary_dashboard import (
     DEFAULT_COMPLEXITY_SUMMARY,
+    _label_missing,
     enrich_summary,
     filter_summary,
     resolve_complexity_summary_path,
