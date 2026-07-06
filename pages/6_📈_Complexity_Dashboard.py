@@ -38,12 +38,36 @@ def _numeric_series(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 def _plot_histogram(values: pd.Series, *, title: str, xlabel: str) -> None:
-    clean = values.dropna()
+    clean = pd.to_numeric(values, errors="coerce").dropna()
     if clean.empty:
         st.info(f"No data for {title}.")
         return
     fig, ax = plt.subplots(figsize=(7, 3.5))
-    ax.hist(clean, bins=min(30, max(10, len(clean) // 3)), color="#2563eb", edgecolor="white")
+
+    # Few distinct integer values → one bar per value with count labels
+    is_integer_like = (clean == clean.round()).all()
+    n_unique = int(clean.nunique())
+    if is_integer_like and n_unique <= 25:
+        counts = clean.astype(int).value_counts().sort_index()
+        bars = ax.bar(
+            [str(v) for v in counts.index],
+            counts.values,
+            color="#2563eb",
+            edgecolor="white",
+        )
+        ax.bar_label(bars, labels=[str(int(v)) for v in counts.values], padding=2, fontsize=8)
+    else:
+        n_bins = min(30, max(10, len(clean) // 3))
+        bin_counts, _, patches = ax.hist(
+            clean, bins=n_bins, color="#2563eb", edgecolor="white"
+        )
+        ax.bar_label(
+            patches,
+            labels=[str(int(v)) if v > 0 else "" for v in bin_counts],
+            padding=2,
+            fontsize=8,
+        )
+
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Datasets")
