@@ -58,6 +58,12 @@ def enrich_summary(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _label_missing(series: pd.Series) -> pd.Series:
+    """Map null/blank values to a stable sidebar filter label."""
+    out = series.astype(str).str.strip()
+    return out.mask(series.isna() | (out == "") | (out.str.lower() == "nan"), "(missing)")
+
+
 def filter_summary(
     df: pd.DataFrame,
     *,
@@ -102,10 +108,10 @@ def filter_summary(
         out = out.loc[ser.isin(n_classes)]
 
     if sources and "source" in out.columns:
-        out = out.loc[out["source"].astype(str).isin(sources)]
+        out = out.loc[_label_missing(out["source"]).isin(sources)]
 
     if presets and "pycol_metrics_preset" in out.columns:
-        out = out.loc[out["pycol_metrics_preset"].astype(str).isin(presets)]
+        out = out.loc[_label_missing(out["pycol_metrics_preset"]).isin(presets)]
 
     if completeness != "all" and "metrics_filled" in out.columns:
         if completeness == "complete":

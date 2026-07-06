@@ -203,7 +203,9 @@ with st.sidebar:
         else []
     )
 
-    source_opts = sorted(df_all["source"].dropna().astype(str).unique()) if "source" in df_all.columns else []
+    source_opts = (
+        sorted(_label_missing(df_all["source"]).unique()) if "source" in df_all.columns else []
+    )
     sources = (
         st.multiselect("Source", options=source_opts, default=source_opts, key="dash_source")
         if source_opts
@@ -211,7 +213,7 @@ with st.sidebar:
     )
 
     preset_opts = (
-        sorted(df_all["pycol_metrics_preset"].dropna().astype(str).unique())
+        sorted(_label_missing(df_all["pycol_metrics_preset"]).unique())
         if "pycol_metrics_preset" in df_all.columns
         else []
     )
@@ -248,7 +250,8 @@ df = filter_summary(
 metric_cols = infer_comparison_metric_columns(df)
 kpis = summary_kpis(df)
 
-m1, m2, m3, m4, m5 = st.columns(5)
+m0, m1, m2, m3, m4, m5 = st.columns(6)
+m0.metric("Total in file", len(df_all), help="All rows loaded from the summary CSV")
 m1.metric("Filtered datasets", kpis["datasets"])
 m2.metric("Fully complete", kpis["complete"])
 m3.metric("Partial", kpis["partial"])
