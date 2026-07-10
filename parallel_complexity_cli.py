@@ -694,11 +694,9 @@ def main() -> None:
         "--pycol-parallel-metrics",
         action="store_true",
         help=(
-            "Use a process pool for PyCol (one worker per metric). Faster on small n, but on large n "
-            "each worker duplicates the design matrix and can build its own distance structure — very high "
-            f"peak RAM. Default: sequential PyCol in one process when n≥{PYCOL_SEQUENTIAL_ROW_THRESHOLD} "
-            "(single Complexity instance, lower memory; still uses all rows unless you set "
-            "--complexity-max-rows)."
+            "After one HEOM build (large n), run distance metrics in parallel using a shared "
+            "in-memory matrix (Linux fork). On small n, falls back to one matrix build per worker. "
+            f"Default when n≥{PYCOL_SEQUENTIAL_ROW_THRESHOLD}: sequential metrics unless this flag is set."
         ),
     )
     parser.add_argument(
@@ -935,16 +933,32 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         )
 
         n_pycol = int(x_met.shape[0])
-        use_sequential_pycol = n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
+        use_shared_matrix_parallel = (
+            n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and bool(args.pycol_parallel_metrics)
+        )
+        use_sequential_pycol = (
+            n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
+        )
         try:
             if not pending_metrics:
                 step("      PyCol: all metrics already saved in CSV — nothing to compute.")
-            elif use_sequential_pycol:
-                phase(
-                    f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
-                    f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
-                    f"dtype={matrix_dtype}) …"
-                )
+            elif use_shared_matrix_parallel or use_sequential_pycol:
+                if use_shared_matrix_parallel:
+                    n_workers = max(
+                        1,
+                        min(int(n_jobs), len(pending_metrics), max(1, mp.cpu_count() or 1)),
+                    )
+                    phase(
+                        f"PyCol: build HEOM once, then {len(pending_metrics)} metric(s) in parallel "
+                        f"({len(already_done)} already saved, shared matrix, n={n_pycol}, "
+                        f"workers={n_workers}, dtype={matrix_dtype}) …"
+                    )
+                else:
+                    phase(
+                        f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
+                        f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
+                        f"dtype={matrix_dtype}) …"
+                    )
                 prog_cb = make_pycol_progress_callback(
                     show_progress, initial_completed=len(already_done)
                 )
@@ -963,6 +977,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                         existing_pycol=existing_row if not args.pycol_no_resume else None,
                         on_metric_complete=checkpoint,
                         on_metric_failure=on_metric_failure,
+                        parallel_metric_workers=n_jobs if use_shared_matrix_parallel else 0,
                     )
                 )
                 result["pycol_sequential_large_n"] = True

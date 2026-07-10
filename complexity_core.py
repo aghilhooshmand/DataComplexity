@@ -560,6 +560,30 @@ def _evaluate_pycol_metric(
         return None
 
 
+_PYCOL_SHARED_COMP: Any = None
+
+
+def _init_pycol_shared_metric_worker(comp: Any) -> None:
+    """Pool initializer: share one Complexity instance (fork COW on Linux)."""
+    global _PYCOL_SHARED_COMP
+    _PYCOL_SHARED_COMP = comp
+
+
+def _run_shared_pycol_metric_worker(metric: str) -> tuple[str, Any]:
+    """Evaluate one PyCol metric using the shared Complexity from the pool initializer."""
+    comp = _PYCOL_SHARED_COMP
+    if comp is None:
+        return metric, None
+    return metric, _evaluate_pycol_metric(comp, metric)
+
+
+def _parallel_metric_pool_workers(requested: int, n_tasks: int) -> int:
+    import os
+
+    cpus = max(1, os.cpu_count() or 1)
+    return max(1, min(int(requested), int(n_tasks), cpus))
+
+
 def compute_pycol_metrics(
     x: np.ndarray,
     y: np.ndarray,
@@ -575,6 +599,7 @@ def compute_pycol_metrics(
     existing_pycol: dict[str, Any] | None = None,
     on_metric_complete: Callable[[str, Any], None] | None = None,
     on_metric_failure: Callable[[str, BaseException], None] | None = None,
+    parallel_metric_workers: int = 0,
 ) -> dict[str, Any]:
     import os
 
@@ -680,12 +705,47 @@ def compute_pycol_metrics(
             out["pycol_heom_parallel"] = True
         if mode == "dist":
             out["pycol_heom_unnorm_skipped"] = True
-        for metric in need_dist_pending:
-            _metric_start(metric)
-            _metric_done(
-                metric,
-                _evaluate_pycol_metric(comp_dist, metric, on_failure=on_metric_failure),
+
+        use_shared_parallel = int(parallel_metric_workers) > 1 and len(need_dist_pending) > 1
+        fork_ok = False
+        if use_shared_parallel:
+            try:
+                import multiprocessing as mp
+
+                mp.get_context("fork")
+                fork_ok = True
+            except (ValueError, AttributeError):
+                fork_ok = False
+
+        if use_shared_parallel and fork_ok:
+            import multiprocessing as mp
+
+            n_workers = _parallel_metric_pool_workers(
+                parallel_metric_workers, len(need_dist_pending)
             )
+            out["pycol_metrics_parallel_shared"] = True
+            out["pycol_metric_workers"] = n_workers
+            for metric in need_dist_pending:
+                _metric_start(metric)
+            ctx = mp.get_context("fork")
+            with ctx.Pool(
+                processes=n_workers,
+                initializer=_init_pycol_shared_metric_worker,
+                initargs=(comp_dist,),
+            ) as pool:
+                for metric, value in pool.imap_unordered(
+                    _run_shared_pycol_metric_worker, need_dist_pending, chunksize=1
+                ):
+                    _metric_done(metric, value)
+        else:
+            if use_shared_parallel and not fork_ok:
+                out["pycol_metrics_parallel_shared"] = False
+            for metric in need_dist_pending:
+                _metric_start(metric)
+                _metric_done(
+                    metric,
+                    _evaluate_pycol_metric(comp_dist, metric, on_failure=on_metric_failure),
+                )
 
     return out
 

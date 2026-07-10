@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Run PyCol (preset=all, full sample) for ONE dataset — serial, no parallel HEOM/metrics.
+# Run PyCol (preset=all, full sample) for ONE dataset at a time.
+# Uses all CPU cores for that dataset: parallel HEOM build + shared-matrix parallel metrics.
 #
 # Usage:
 #   ./run_one_pycol.sh ring
@@ -30,6 +31,11 @@ METRICS="${METRICS:-all}"
 COMPLEXITY_MAX_ROWS="${COMPLEXITY_MAX_ROWS:-0}"
 PYCOL_DISTANCE_MATRIX="${PYCOL_DISTANCE_MATRIX:-auto}"
 PYCOL_MATRIX_DTYPE="${PYCOL_MATRIX_DTYPE:-float64}"
+# Hive-friendly: one dataset, all cores — parallel HEOM + shared-matrix metrics (Linux fork).
+_detected_cpus="$(nproc 2>/dev/null || echo 4)"
+N_JOBS="${N_JOBS:-${_detected_cpus}}"
+PYCOL_PARALLEL_HEOM="${PYCOL_PARALLEL_HEOM:-1}"
+PYCOL_PARALLEL_METRICS="${PYCOL_PARALLEL_METRICS:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
 usage() {
@@ -39,7 +45,8 @@ Usage: $(basename "$0") <dataset>
   <dataset>  basename without path, e.g. ring or ring.csv
              (file must exist under ${PMLB_DIR}/)
 
-Serial PyCol: n_jobs=1, no parallel HEOM, no parallel metrics.
+One dataset at a time; uses all CPU cores for that run (N_JOBS=\${N_JOBS:-nproc}).
+Parallel HEOM build + shared-matrix parallel metrics enabled by default on Linux.
 Results: ${OUTPUT_CSV}
 Log:     ${LOG_DIR}/<dataset>.csv.log  (one file per dataset; stdout + errors)
 
@@ -100,7 +107,7 @@ cmd=(
   --label-column "${LABEL_COLUMN}"
   --library pycol
   --metrics "${METRICS}"
-  --n-jobs 1
+  --n-jobs "${N_JOBS}"
   --missing-values "${MISSING_VALUES}"
   --output-csv "${OUTPUT_CSV}"
   --upsert-key "${UPSERT_KEY}"
@@ -109,6 +116,13 @@ cmd=(
   --pycol-matrix-dtype "${PYCOL_MATRIX_DTYPE}"
 )
 
+if [[ "${PYCOL_PARALLEL_HEOM}" == "1" ]]; then
+  cmd+=(--pycol-parallel-heom)
+fi
+if [[ "${PYCOL_PARALLEL_METRICS}" == "1" ]]; then
+  cmd+=(--pycol-parallel-metrics)
+fi
+
 if [[ -n "${COMPLEXITY_MAX_ROWS}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
   cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
 fi
@@ -116,7 +130,7 @@ fi
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
 echo "Log:     ${DS_LOG}" >&2
-echo "Mode:    serial PyCol (n_jobs=1); per-metric progress on stderr" >&2
+echo "Mode:    n_jobs=${N_JOBS}  parallel_heom=${PYCOL_PARALLEL_HEOM}  parallel_metrics=${PYCOL_PARALLEL_METRICS}" >&2
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   printf '%q ' "${cmd[@]}"
