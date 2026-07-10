@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-_DEFAULT_PARALLEL_MIN_ROWS = 256
+_DEFAULT_PARALLEL_MIN_ROWS = 1
 
 
 def _feat_missing_scalar(value: Any) -> bool:

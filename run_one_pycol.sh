@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Run PyCol (preset=all, full sample) for ONE dataset at a time.
-# Uses all CPU cores for that dataset: parallel HEOM build + shared-matrix parallel metrics.
+# Parallelism is automatic: cores from system load, shared HEOM matrix, parallel metrics.
 #
 # Usage:
 #   ./run_one_pycol.sh ring
@@ -31,11 +31,8 @@ METRICS="${METRICS:-all}"
 COMPLEXITY_MAX_ROWS="${COMPLEXITY_MAX_ROWS:-0}"
 PYCOL_DISTANCE_MATRIX="${PYCOL_DISTANCE_MATRIX:-auto}"
 PYCOL_MATRIX_DTYPE="${PYCOL_MATRIX_DTYPE:-float64}"
-# Hive-friendly: one dataset, all cores — parallel HEOM + shared-matrix metrics (Linux fork).
-_detected_cpus="$(nproc 2>/dev/null || echo 4)"
-N_JOBS="${N_JOBS:-${_detected_cpus}}"
-PYCOL_PARALLEL_HEOM="${PYCOL_PARALLEL_HEOM:-1}"
-PYCOL_PARALLEL_METRICS="${PYCOL_PARALLEL_METRICS:-1}"
+# 0 = auto: CLI picks cores from cpu_count minus current load (Linux getloadavg).
+N_JOBS="${N_JOBS:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 
 usage() {
@@ -45,8 +42,8 @@ Usage: $(basename "$0") <dataset>
   <dataset>  basename without path, e.g. ring or ring.csv
              (file must exist under ${PMLB_DIR}/)
 
-One dataset at a time; uses all CPU cores for that run (N_JOBS=\${N_JOBS:-nproc}).
-Parallel HEOM build + shared-matrix parallel metrics enabled by default on Linux.
+One dataset at a time. Parallel HEOM + shared-matrix metrics are automatic.
+N_JOBS=0 (default) uses available cores minus system load; set N_JOBS=70 to cap.
 Results: ${OUTPUT_CSV}
 Log:     ${LOG_DIR}/<dataset>.csv.log  (one file per dataset; stdout + errors)
 
@@ -116,13 +113,6 @@ cmd=(
   --pycol-matrix-dtype "${PYCOL_MATRIX_DTYPE}"
 )
 
-if [[ "${PYCOL_PARALLEL_HEOM}" == "1" ]]; then
-  cmd+=(--pycol-parallel-heom)
-fi
-if [[ "${PYCOL_PARALLEL_METRICS}" == "1" ]]; then
-  cmd+=(--pycol-parallel-metrics)
-fi
-
 if [[ -n "${COMPLEXITY_MAX_ROWS}" && "${COMPLEXITY_MAX_ROWS}" != "0" ]]; then
   cmd+=(--complexity-max-rows "${COMPLEXITY_MAX_ROWS}")
 fi
@@ -130,7 +120,11 @@ fi
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
 echo "Log:     ${DS_LOG}" >&2
-echo "Mode:    n_jobs=${N_JOBS}  parallel_heom=${PYCOL_PARALLEL_HEOM}  parallel_metrics=${PYCOL_PARALLEL_METRICS}" >&2
+if [[ "${N_JOBS}" == "0" ]]; then
+  echo "Mode:    auto n_jobs (cpus − load); parallel HEOM + shared metrics" >&2
+else
+  echo "Mode:    n_jobs=${N_JOBS}; parallel HEOM + shared metrics" >&2
+fi
 
 if [[ "${DRY_RUN}" == "1" ]]; then
   printf '%q ' "${cmd[@]}"

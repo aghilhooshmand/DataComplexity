@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import multiprocessing as mp
+import os
 import re
 import sys
 import traceback
@@ -29,12 +31,31 @@ from complexity_core import (
     subsample_xy_for_complexity,
 )
 
-CLI_VERSION = "1.7.0"
-#
-# Above this row count (after cleaning / subsampling), PyCol defaults to **sequential** metrics in one
-# process via a single Complexity object — much lower peak RAM than a Process pool (each worker
-# otherwise pickles X,y and builds its own full Complexity / distance structure).
-PYCOL_SEQUENTIAL_ROW_THRESHOLD = 5_000
+CLI_VERSION = "1.8.0"
+
+
+def resolve_n_jobs(requested: int, *, n_tasks: int | None = None) -> tuple[int, str]:
+    """Resolve worker count: ``requested`` 0 = auto from CPUs and 1-min load average."""
+    cpus = max(1, mp.cpu_count() or 1)
+    req = int(requested)
+
+    if req > 0:
+        chosen = min(req, cpus)
+        note = f"requested={req}, cpus={cpus}"
+    else:
+        try:
+            load1, _, _ = os.getloadavg()
+            idle = max(1, cpus - math.ceil(load1))
+            chosen = min(cpus, idle)
+            note = f"auto load1={load1:.1f}, cpus={cpus}, idle≈{idle}"
+        except (OSError, AttributeError):
+            chosen = cpus
+            note = f"auto cpus={cpus}"
+
+    if n_tasks is not None and int(n_tasks) > 0:
+        chosen = min(chosen, int(n_tasks))
+
+    return max(1, chosen), note
 
 
 def extract_last_int(text: str) -> int | None:
@@ -563,6 +584,7 @@ def build_error_result(
         else:
             ds_file = ds_name if str(ds_name).endswith(".csv") else f"{ds_name}.csv"
     tb = traceback.format_exc()
+    n_jobs, n_jobs_note = resolve_n_jobs(int(max(0, args.n_jobs)))
     return {
         "dataset_name": ds_name,
         "dataset_file": ds_file,
@@ -570,7 +592,8 @@ def build_error_result(
         "source": args.source,
         "label_column": args.label_column,
         "missing_values": args.missing_values,
-        "n_jobs": int(max(1, args.n_jobs)),
+        "n_jobs": n_jobs,
+        "n_jobs_note": n_jobs_note,
         "error": f"{type(exc).__name__}: {exc}",
         "error_traceback": tb,
     }
@@ -659,7 +682,15 @@ def main() -> None:
         default="all",
         help="For library=both: pymfe metrics (all or comma-separated).",
     )
-    parser.add_argument("--n-jobs", type=int, default=max(1, (mp.cpu_count() // 2)))
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=0,
+        help=(
+            "Max worker processes. 0 = auto: use all CPUs minus current 1-min load average "
+            "(Linux getloadavg). Capped by pending metrics and cpu_count."
+        ),
+    )
     parser.add_argument(
         "--missing-values",
         default="impute_median",
@@ -691,13 +722,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--pycol-parallel-metrics",
+        "--no-pycol-parallel-heom",
         action="store_true",
-        help=(
-            "After one HEOM build (large n), run distance metrics in parallel using a shared "
-            "in-memory matrix (Linux fork). On small n, falls back to one matrix build per worker. "
-            f"Default when n≥{PYCOL_SEQUENTIAL_ROW_THRESHOLD}: sequential metrics unless this flag is set."
-        ),
+        help="Disable parallel row workers when building the HEOM matrix (default: parallel when matrix is built).",
+    )
+    parser.add_argument(
+        "--no-pycol-parallel-metrics",
+        action="store_true",
+        help="Compute distance metrics one-by-one after a single HEOM build (default: parallel on shared matrix).",
     )
     parser.add_argument(
         "--pycol-distance-matrix",
@@ -706,15 +738,6 @@ def main() -> None:
         help=(
             "HEOM storage (default: auto). auto: cheap_minimal→no matrix, cheap→one matrix, "
             "expensive_core→two matrices. dist/both/skip override. One matrix saves ~50%% RAM vs stock PyCol when N4,N2,… only."
-        ),
-    )
-    parser.add_argument(
-        "--pycol-parallel-heom",
-        action="store_true",
-        help=(
-            "Parallel row workers when building the HEOM matrix (pycol_heom.py). "
-            "Matrix build is always vectorized; this only adds multi-process rows. "
-            "Use when HEOM tier is dist or both (not skip)."
         ),
     )
     parser.add_argument(
@@ -829,11 +852,14 @@ def _run_cli_body(args: argparse.Namespace) -> None:
             f"Label column '{args.label_column}' not found. Available columns: {list(df.columns)}"
         )
 
+    n_jobs_requested = int(max(0, args.n_jobs))
+    n_jobs, n_jobs_note = resolve_n_jobs(n_jobs_requested)
+
     phase("Encoding features and labels …")
     x, y, _ = prepare_xy(df, label_col=args.label_column, missing_values=args.missing_values)
     step(
         f"      Ready: n_rows={x.shape[0]}  n_features={x.shape[1]}  n_classes={int(np.unique(y).size)}  "
-        f"missing_values={args.missing_values!r}  n_jobs={max(1, args.n_jobs)}"
+        f"missing_values={args.missing_values!r}  n_jobs={n_jobs} ({n_jobs_note})"
     )
     x_met, y_met, cmeta = subsample_xy_for_complexity(x, y, int(args.complexity_max_rows))
     if cmeta.get("complexity_subsampled"):
@@ -853,7 +879,9 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         "n_rows_used": int(x.shape[0]),
         "n_features_after_encoding": int(x.shape[1]),
         "n_classes": int(np.unique(y).size),
-        "n_jobs": int(max(1, args.n_jobs)),
+        "n_jobs": n_jobs,
+        "n_jobs_requested": n_jobs_requested,
+        "n_jobs_note": n_jobs_note,
     }
     if args.source == "csv":
         result["dataset_file"] = Path(args.ref).name
@@ -866,7 +894,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         result["n_rows_complexity_input"] = int(cmeta["n_rows_complexity_input"])
         result["n_rows_complexity_used"] = int(cmeta["n_rows_complexity_used"])
 
-    n_jobs = int(max(1, args.n_jobs))
+    n_jobs = int(max(1, n_jobs))
     matrix_dtype = np.dtype(args.pycol_matrix_dtype)
     out_path = Path(args.output_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -933,32 +961,37 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         )
 
         n_pycol = int(x_met.shape[0])
-        use_shared_matrix_parallel = (
-            n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and bool(args.pycol_parallel_metrics)
-        )
-        use_sequential_pycol = (
-            n_pycol >= PYCOL_SEQUENTIAL_ROW_THRESHOLD and not args.pycol_parallel_metrics
+        parallel_heom = pycol_matrix_mode != "skip" and not args.no_pycol_parallel_heom
+        parallel_metrics = not args.no_pycol_parallel_metrics
+        pycol_n_jobs, pycol_jobs_note = resolve_n_jobs(
+            n_jobs_requested,
+            n_tasks=len(pending_metrics) if parallel_metrics else None,
         )
         try:
             if not pending_metrics:
                 step("      PyCol: all metrics already saved in CSV — nothing to compute.")
-            elif use_shared_matrix_parallel or use_sequential_pycol:
-                if use_shared_matrix_parallel:
-                    n_workers = max(
-                        1,
-                        min(int(n_jobs), len(pending_metrics), max(1, mp.cpu_count() or 1)),
-                    )
-                    phase(
-                        f"PyCol: build HEOM once, then {len(pending_metrics)} metric(s) in parallel "
-                        f"({len(already_done)} already saved, shared matrix, n={n_pycol}, "
-                        f"workers={n_workers}, dtype={matrix_dtype}) …"
-                    )
+            else:
+                metric_workers = pycol_n_jobs if parallel_metrics else 0
+                n_workers = max(
+                    1,
+                    min(
+                        pycol_n_jobs,
+                        len(pending_metrics),
+                        max(1, mp.cpu_count() or 1),
+                    ),
+                )
+                mode_bits: list[str] = []
+                if parallel_heom:
+                    mode_bits.append(f"parallel HEOM ({pycol_n_jobs} workers)")
+                if parallel_metrics:
+                    mode_bits.append(f"shared-matrix metrics (≤{n_workers} workers)")
                 else:
-                    phase(
-                        f"PyCol: computing {len(pending_metrics)} metric(s) sequentially "
-                        f"({len(already_done)} already saved, single Complexity, n={n_pycol}, "
-                        f"dtype={matrix_dtype}) …"
-                    )
+                    mode_bits.append("sequential metrics")
+                phase(
+                    f"PyCol: build HEOM once, then {len(pending_metrics)} metric(s) "
+                    f"({len(already_done)} already saved, n={n_pycol}, "
+                    f"{'; '.join(mode_bits)}; n_jobs={pycol_n_jobs} [{pycol_jobs_note}]) …"
+                )
                 prog_cb = make_pycol_progress_callback(
                     show_progress, initial_completed=len(already_done)
                 )
@@ -969,40 +1002,17 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                         pycol_metrics_run,
                         matrix_mode=pycol_matrix_mode,
                         preset=pycol_preset,
-                        parallel_heom=bool(args.pycol_parallel_heom)
-                        and pycol_matrix_mode != "skip",
-                        heom_n_jobs=n_jobs,
+                        parallel_heom=parallel_heom,
+                        heom_n_jobs=pycol_n_jobs,
                         matrix_dtype=matrix_dtype,
                         progress_callback=prog_cb,
                         existing_pycol=existing_row if not args.pycol_no_resume else None,
                         on_metric_complete=checkpoint,
                         on_metric_failure=on_metric_failure,
-                        parallel_metric_workers=n_jobs if use_shared_matrix_parallel else 0,
+                        parallel_metric_workers=metric_workers,
                     )
                 )
-                result["pycol_sequential_large_n"] = True
-            else:
-                phase(
-                    f"PyCol: computing {len(pending_metrics)} metric(s) in parallel "
-                    f"({len(already_done)} already saved) …"
-                )
-                result.update(
-                    run_parallel_jobs(
-                        "pycol",
-                        x_met,
-                        y_met,
-                        pending_metrics,
-                        n_jobs,
-                        show_progress=show_progress,
-                        desc="pycol",
-                        pycol_parallel_heom=bool(args.pycol_parallel_heom)
-                        and pycol_matrix_mode != "skip",
-                        pycol_heom_n_jobs=n_jobs,
-                        pycol_matrix_mode=pycol_matrix_mode,
-                        pycol_matrix_dtype=matrix_dtype,
-                        on_metric_complete=checkpoint,
-                    )
-                )
+                result["pycol_auto_parallel"] = parallel_heom or bool(metric_workers)
         except KeyboardInterrupt:
             record_pycol_interrupt(
                 failure_log=failure_log,
