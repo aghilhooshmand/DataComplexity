@@ -34,14 +34,15 @@ COMPLEXITY_MAX_ROWS="0"
 # Only PYCOL_METRICS_ARG is passed to the CLI unless you set it to "custom".
 #
 #   cheap_minimal — overlap/purity only; WHY: no row×row distance table (fastest, lowest RAM)
-#   cheap         — all PyCol except T1, NSG, ICSV (incl. N4, kDN, …); WHY: at most ONE matrix
+#   cheap         — 24 metrics; skips T1, NSG, ICSV, ONB, DBC; WHY: practical on large n
+#   middle        — cheap + ONB + DBC (26 metrics); WHY: one matrix, but ONB/DBC are slow
 #   expensive_core — T1, NSG, ICSV only; WHY: need unnormalized HEOM → TWO matrices
 #   expensive     — same as expensive_core
-#   all           — full catalog (cheap + expensive_core rules combined)
+#   all / full    — full catalog (29 metrics; two matrices when T1/NSG/ICSV run)
 #   custom        — use PYCOL_CUSTOM_METRICS below (comma list), e.g. N1,N3,F1,F1v
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
-# Active setting: "cheap" — all PyCol except T1, NSG, ICSV (one matrix max; practical on large n).
+# Active setting: "cheap" — 24 metrics; skips T1/NSG/ICSV/ONB/DBC (Hive default).
 PYCOL_METRICS_ARG="cheap"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"

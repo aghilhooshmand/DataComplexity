@@ -75,9 +75,10 @@ chmod +x run_batch_parallel.sh
 
 ```bash
 chmod +x run_one_pycol.sh
-./run_one_pycol.sh magic          # default METRICS=cheap (skips T1, NSG, ICSV)
+./run_one_pycol.sh magic          # default METRICS=cheap (24 metrics)
 ./run_one_pycol.sh nursery
-METRICS=all ./run_one_pycol.sh ring   # full catalog — very slow on large n
+METRICS=middle ./run_one_pycol.sh magic   # + ONB, DBC
+METRICS=full ./run_one_pycol.sh ring      # all 29 metrics
 ```
 
 Results: `results/datasets_complexity_summary.csv` (upserted by `dataset_file`). Logs: `results/logs/<dataset>.csv.log`.
@@ -343,10 +344,12 @@ For a single file under `pmlb_DS/` with resume, logging, and a **lock** so two r
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `METRICS` | `cheap` | Skips **T1, NSG, ICSV** (multi-day on large *n*) |
+| `METRICS` | `cheap` | **24 metrics** — skips T1, NSG, ICSV, ONB, DBC |
 | `N_JOBS` | `0` | Auto: `cpus − load`; or set e.g. `70` |
 | `COMPLEXITY_MAX_ROWS` | `0` | `0` = all rows |
 | `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Upsert target |
+
+Presets: `cheap` (24) · `middle` (+ONB, DBC → 26) · `full` / `all` (29)
 
 **Before starting on Hive:** stop any old magic/nursery jobs (`pkill -f "magic.csv"`). Only one dataset at a time.
 
@@ -359,7 +362,7 @@ For a single file under `pmlb_DS/` with resume, logging, and a **lock** so two r
 | `MISSING_VALUES` | `impute_median` | Same as CLI |
 | `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Combined results |
 | `COMPLEXITY_MAX_ROWS` | `0` | Global subsample cap (`0` = all rows) |
-| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset — skips T1, NSG, ICSV |
+| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset — 24 metrics (see `middle`, `full`) |
 | `PYCOL_DISTANCE_MATRIX` | `auto` | `auto` (from preset), or force `skip` / `dist` / `both` |
 | `DATASETS` | see script | `source\|ref\|label\|[max_rows]` per line |
 | `DRY_RUN` | `0` | `1` = print only |
@@ -388,13 +391,14 @@ PyCol implements meta-features from the **classification complexity** literature
 
 ### Presets (Streamlit, CLI, batch)
 
-| Preset | Metrics | HEOM tier (`pycol_matrix_mode`) | Matrices stored |
-|--------|---------|--------------------------------|-----------------|
+| Preset | Metrics | HEOM tier | Matrices stored |
+|--------|---------|-----------|-----------------|
 | **`cheap_minimal`** | F1, F2, F3, F4, F1v, input_noise, purity | **`skip`** | None |
-| **`cheap`** | All PyCol metrics **except** T1, NSG, ICSV (includes **N1, N2, N3, N4**, kDN, LSC, … + F1–F4, …) | **`dist`** | One matrix when needed; none for F-only metrics |
+| **`cheap`** | **24 metrics** — all except **T1, NSG, ICSV, ONB, DBC** | **`dist`** | One matrix when needed |
+| **`middle`** | **26 metrics** — cheap **+ ONB + DBC** | **`dist`** | One matrix when needed |
 | **`expensive_core`** | T1, NSG, ICSV | **`both`** | `dist` + `unnorm` |
 | **`expensive`** | Same as `expensive_core` | **`both`** | `dist` + `unnorm` |
-| **`all`** | Full catalog below | **`both`** | `dist` + `unnorm` |
+| **`all`** / **`full`** | Full catalog (29 metrics) | **`both`** | `dist` + `unnorm` |
 | **`custom`** | Comma-separated list | **Inferred** | See below |
 
 **Custom inference:** metrics needing **unnorm** → `T1`, `NSG`, `ICSV`; any other distance metric → `dist` if no unnorm metrics; feature-only → `skip`.
@@ -528,7 +532,7 @@ requirements.txt
 | Run >1 day on magic/nursery | Default `METRICS=cheap` skips NSG/ICSV; kill duplicate jobs (`ps aux \| grep magic`); one `./run_one_pycol.sh` at a time |
 | Two magic jobs at once | `pkill -f "parallel_complexity_cli.py.*magic.csv"` then single `./run_one_pycol.sh magic` |
 | Metrics missing in CSV | Tier was `skip` — check `pycol_metrics_omitted_need_distance`; use `cheap` or higher |
-| NSG / ICSV empty | Expected with `cheap` preset (skipped on purpose for large *n*) |
+| NSG / ICSV / ONB / DBC empty | Expected with **`cheap`** (skipped on purpose for large *n*); use **`middle`** or **`full`** |
 | OOM with `cheap` on huge n | Normal — use `COMPLEXITY_MAX_ROWS` or `\|max_rows` on batch line |
 | Adult + `drop_rows` empty | Use `impute_median` |
 | Streamlit UI stale | Hard-refresh browser tab |

@@ -23,16 +23,18 @@ from complexity_core import (
 
 PYCOL_PRESET_LABELS: dict[str, str] = {
     "cheap_minimal": "cheap_minimal — no distance table (fast screening)",
-    "cheap": "cheap — one table max (almost all PyCol metrics)",
+    "cheap": "cheap — 24 metrics, skips T1/NSG/ICSV/ONB/DBC (Hive default)",
+    "middle": "middle — cheap + ONB + DBC (26 metrics; slow on large n)",
     "expensive_core": "expensive_core — two tables (T1, NSG, ICSV)",
     "expensive": "expensive — two tables (T1, NSG, ICSV)",
-    "all": "all — full PyCol catalog",
+    "all": "all / full — full PyCol catalog (29 metrics)",
     "custom": "custom — you choose metrics",
 }
 
 PYCOL_PRESET_ORDER: tuple[str, ...] = (
     "cheap_minimal",
     "cheap",
+    "middle",
     "expensive_core",
     "expensive",
     "all",

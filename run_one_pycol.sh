@@ -8,7 +8,8 @@
 #   ./run_one_pycol.sh ring
 #   ./run_one_pycol.sh mushroom.csv
 #   ./run_one_pycol.sh --list
-#   METRICS=all ./run_one_pycol.sh ring    # full catalog incl. NSG/ICSV (very slow on large n)
+#   METRICS=all ./run_one_pycol.sh ring    # full catalog (29 metrics; very slow on large n)
+#   METRICS=middle ./run_one_pycol.sh ring # cheap + ONB + DBC
 #   DRY_RUN=1 ./run_one_pycol.sh magic
 #
 set -euo pipefail
@@ -30,7 +31,8 @@ LOG_DIR="${LOG_DIR:-${SCRIPT_DIR}/results/logs}"
 LOCK_DIR="${LOCK_DIR:-${SCRIPT_DIR}/results/locks}"
 MISSING_VALUES="${MISSING_VALUES:-impute_median}"
 LABEL_COLUMN="${LABEL_COLUMN:-target}"
-# cheap = all PyCol except T1, NSG, ICSV (~½ matrix RAM; finishes in hours not days on large n).
+# Default preset: cheap — 24 metrics (skips T1, NSG, ICSV, ONB, DBC).
+# Use METRICS=middle for ONB/DBC; METRICS=full or METRICS=all for all 29.
 METRICS="${METRICS:-cheap}"
 COMPLEXITY_MAX_ROWS="${COMPLEXITY_MAX_ROWS:-0}"
 PYCOL_DISTANCE_MATRIX="${PYCOL_DISTANCE_MATRIX:-auto}"
@@ -46,7 +48,8 @@ Usage: $(basename "$0") <dataset>
   <dataset>  basename without path, e.g. ring or ring.csv
              (file must exist under ${PMLB_DIR}/)
 
-One dataset at a time. Default METRICS=cheap (skips T1, NSG, ICSV).
+One dataset at a time. Default METRICS=cheap (24 metrics; skips T1, NSG, ICSV, ONB, DBC).
+Use METRICS=middle for ONB/DBC; METRICS=full for all 29.
 Parallel HEOM + shared-matrix metrics are automatic.
 N_JOBS=0 uses available cores minus system load.
 Results: ${OUTPUT_CSV}
@@ -148,7 +151,7 @@ fi
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
 echo "Log:     ${DS_LOG}" >&2
-echo "Metrics: ${METRICS} (cheap skips T1, NSG, ICSV)" >&2
+echo "Metrics: ${METRICS} (cheap=24, middle=+ONB/DBC, full=all 29)" >&2
 if [[ "${N_JOBS}" == "0" ]]; then
   echo "Mode:    auto n_jobs (cpus − load); parallel HEOM + shared metrics" >&2
 else
