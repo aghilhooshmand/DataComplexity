@@ -184,7 +184,7 @@ with st.expander("How to use this page", expanded=True):
 4. Select libraries and a **PyCol preset** — open *“PyCol preset categories — what & why”* for a short explanation:
    - **cheap_minimal** — no distance table (fast);
    - **cheap** — 24 metrics, **one** table max (Hive default);
-   - **middle** — cheap + ONB + DBC (slow on large *n*);
+   - **standard** — cheap + ONB + DBC (slow on large *n*);
    - **expensive_core** — T1, NSG, ICSV (two tables).
    HEOM storage is automatic; optional **Parallel HEOM build** when a table is needed.
 5. Click **Compute complexity**, then **Download CSV** or **Save copy to results/**.

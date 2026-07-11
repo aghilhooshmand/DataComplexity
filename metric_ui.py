@@ -24,7 +24,7 @@ from complexity_core import (
 PYCOL_PRESET_LABELS: dict[str, str] = {
     "cheap_minimal": "cheap_minimal — no distance table (fast screening)",
     "cheap": "cheap — 24 metrics, skips T1/NSG/ICSV/ONB/DBC (Hive default)",
-    "middle": "middle — cheap + ONB + DBC (26 metrics; slow on large n)",
+    "standard": "standard — cheap + ONB + DBC (26 metrics; slow on large n)",
     "expensive_core": "expensive_core — two tables (T1, NSG, ICSV)",
     "expensive": "expensive — two tables (T1, NSG, ICSV)",
     "all": "all / full — full PyCol catalog (29 metrics)",
@@ -34,7 +34,7 @@ PYCOL_PRESET_LABELS: dict[str, str] = {
 PYCOL_PRESET_ORDER: tuple[str, ...] = (
     "cheap_minimal",
     "cheap",
-    "middle",
+    "standard",
     "expensive_core",
     "expensive",
     "all",
@@ -450,7 +450,7 @@ def render_metric_selection_block(
     """
     Metric selection for Streamlit (Calculator / Comparison).
 
-    PyCol: CLI-aligned presets (cheap_minimal / cheap / expensive_core / …) + automatic HEOM tier.
+    PyCol: CLI-aligned presets (cheap_minimal / cheap / standard / expensive_core / …) + automatic HEOM tier.
     PyMFE: all metrics or cheap/expensive pools.
     """
     selected_by_library: dict[str, list[str]] = {}

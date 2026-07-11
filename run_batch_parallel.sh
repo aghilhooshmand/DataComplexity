@@ -35,7 +35,7 @@ COMPLEXITY_MAX_ROWS="0"
 #
 #   cheap_minimal — overlap/purity only; WHY: no row×row distance table (fastest, lowest RAM)
 #   cheap         — 24 metrics; skips T1, NSG, ICSV, ONB, DBC; WHY: practical on large n
-#   middle        — cheap + ONB + DBC (26 metrics); WHY: one matrix, but ONB/DBC are slow
+#   standard      — cheap + ONB + DBC (26 metrics); WHY: one matrix, but ONB/DBC are slow
 #   expensive_core — T1, NSG, ICSV only; WHY: need unnormalized HEOM → TWO matrices
 #   expensive     — same as expensive_core
 #   all / full    — full catalog (29 metrics; two matrices when T1/NSG/ICSV run)

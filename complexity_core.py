@@ -100,14 +100,14 @@ PYCOL_METRICS_NEED_UNNORM: frozenset[str, ...] = frozenset({"T1", "NSG", "ICSV"}
 # Topology metrics using __get_sphere_count — hours on large n; one normalized matrix only.
 PYCOL_METRICS_SLOW_TOPOLOGY: frozenset[str, ...] = frozenset({"ONB", "DBC"})
 
-# middle = all PyCol except T1, NSG, ICSV (one matrix max).
-PYCOL_METRICS_MIDDLE: tuple[str, ...] = tuple(
+# standard = all PyCol except T1, NSG, ICSV (one matrix max).
+PYCOL_METRICS_STANDARD: tuple[str, ...] = tuple(
     m for m in PYCOL_ALL_METRICS if m not in PYCOL_METRICS_NEED_UNNORM
 )
 
-# cheap = middle minus slow topology (ONB, DBC) — practical default for large n on Hive.
+# cheap = standard minus slow topology (ONB, DBC) — practical default for large n on Hive.
 PYCOL_METRICS_CHEAP: tuple[str, ...] = tuple(
-    m for m in PYCOL_METRICS_MIDDLE if m not in PYCOL_METRICS_SLOW_TOPOLOGY
+    m for m in PYCOL_METRICS_STANDARD if m not in PYCOL_METRICS_SLOW_TOPOLOGY
 )
 
 # Metrics that require both dist_matrix and unnorm_dist_matrix.
@@ -121,7 +121,7 @@ PYCOL_METRICS_EXPENSIVE: tuple[str, ...] = tuple(
 PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
     "cheap_minimal": PYCOL_METRICS_CHEAP_MINIMAL,
     "cheap": PYCOL_METRICS_CHEAP,
-    "middle": PYCOL_METRICS_MIDDLE,
+    "standard": PYCOL_METRICS_STANDARD,
     "expensive_core": PYCOL_METRICS_EXPENSIVE_CORE,
     "expensive": PYCOL_METRICS_EXPENSIVE,
     "all": tuple(PYCOL_ALL_METRICS),
@@ -131,7 +131,7 @@ PYCOL_METRIC_PRESETS: dict[str, tuple[str, ...]] = {
 PYCOL_PRESET_MATRIX_MODE: dict[str, Literal["skip", "dist", "both"]] = {
     "cheap_minimal": "skip",
     "cheap": "dist",
-    "middle": "dist",
+    "standard": "dist",
     "expensive_core": "both",
     "expensive": "both",
     "all": "both",
@@ -159,7 +159,7 @@ PYMFE_METRICS_CHEAP: tuple[str, ...] = (
 METRIC_COST_HEURISTIC_CAPTION = (
     "**RAM tiers:** *cheap_minimal* → **no** distance matrix (F1–F4, F1v, input_noise, purity). "
     "*cheap* → fast benchmark set (excludes T1/NSG/ICSV/ONB/DBC). "
-    "*middle* → cheap + ONB + DBC (one matrix). "
+    "*standard* → cheap + ONB + DBC (one matrix). "
     "*full* / *all* → every metric (two matrices when T1/NSG/ICSV run)."
 )
 
@@ -173,8 +173,8 @@ PYCOL_PRESET_USER_WHY: dict[str, str] = {
         "Hive default: 24 metrics — all practical PyCol measures except T1, NSG, ICSV, ONB, DBC. "
         "One normalized HEOM matrix when needed; finishes in hours on large n."
     ),
-    "middle": (
-        "cheap plus ONB and DBC (26 metrics). Still skips T1, NSG, ICSV. "
+    "standard": (
+        "Standard benchmark set: cheap plus ONB and DBC (26 metrics). Still skips T1, NSG, ICSV. "
         "ONB/DBC use slow sphere logic — can add many hours on n≈20k."
     ),
     "expensive_core": (
@@ -185,7 +185,7 @@ PYCOL_PRESET_USER_WHY: dict[str, str] = {
         "Same as expensive_core (T1, NSG, ICSV). Use when you only need the two-matrix tier without the full catalog."
     ),
     "all": (
-        "Full catalog (29 metrics): cheap + middle-only + expensive_core — two matrices when T1/NSG/ICSV run."
+        "Full catalog (29 metrics): cheap + standard-only + expensive_core — two matrices when T1/NSG/ICSV run."
     ),
     "full": (
         "Alias for all — every PyCol metric."
@@ -202,7 +202,7 @@ PyCol presets (pick one; --pycol-distance-matrix auto is recommended):
 
   cheap           24 metrics — all except T1, NSG, ICSV, ONB, DBC (one matrix max). Best for large n.
 
-  middle          26 metrics — cheap + ONB + DBC (still skips T1, NSG, ICSV; one matrix).
+  standard        26 metrics — cheap + ONB + DBC (still skips T1, NSG, ICSV; one matrix).
 
   expensive_core  T1, NSG, ICSV only — TWO matrices (normalized + unnormalized HEOM).
 
@@ -316,13 +316,14 @@ def parse_pycol_metrics_selection(
     """
     Expand a PyCol metrics argument.
 
-    - ``cheap_minimal`` / ``cheap`` / ``middle`` / ``expensive_core`` / ``expensive`` / ``all`` / ``full`` → built-in lists.
+    - ``cheap_minimal`` / ``cheap`` / ``standard`` / ``expensive_core`` / ``expensive`` / ``all`` / ``full`` → built-in lists.
     - ``custom`` → requires ``custom_metrics`` (comma-separated base names); preset ``custom``.
     - Otherwise → ``metrics_arg`` treated as a comma-separated custom list (backward compatible); preset ``custom``.
     """
     key = metrics_arg.strip().lower()
-    if key == "full":
-        key = "all"
+    if key in ("full", "middle"):
+        # full → all; middle was renamed to standard
+        key = "all" if key == "full" else "standard"
     if key == "custom":
         if not custom_metrics or not str(custom_metrics).strip():
             raise ValueError(

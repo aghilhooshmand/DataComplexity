@@ -651,7 +651,7 @@ def main() -> None:
         default="all",
         help=(
             "PyCol presets: cheap_minimal (no matrix); cheap (24 metrics, fast on large n); "
-            "middle (cheap + ONB/DBC); expensive_core (T1/NSG/ICSV); expensive; all/full; custom. "
+            "standard (cheap + ONB/DBC); expensive_core (T1/NSG/ICSV); expensive; all/full; custom. "
             "Or comma-separated names (e.g. F1,N3,N4). See epilog below for why. pymfe: all | list."
         ),
     )
@@ -659,7 +659,7 @@ def main() -> None:
         "--pycol-metrics",
         default="all",
         help=(
-            "When --library both: PyCol side — cheap_minimal | cheap | middle | expensive_core | expensive | all | full | custom | or comma-separated names. "
+            "When --library both: PyCol side — cheap_minimal | cheap | standard | expensive_core | expensive | all | full | custom | or comma-separated names. "
             "If 'custom', also pass --pycol-custom-metrics."
         ),
     )

@@ -77,7 +77,7 @@ chmod +x run_batch_parallel.sh
 chmod +x run_one_pycol.sh
 ./run_one_pycol.sh magic          # default METRICS=cheap (24 metrics)
 ./run_one_pycol.sh nursery
-METRICS=middle ./run_one_pycol.sh magic   # + ONB, DBC
+METRICS=standard ./run_one_pycol.sh magic   # + ONB, DBC
 METRICS=full ./run_one_pycol.sh ring      # all 29 metrics
 ```
 
@@ -349,7 +349,7 @@ For a single file under `pmlb_DS/` with resume, logging, and a **lock** so two r
 | `COMPLEXITY_MAX_ROWS` | `0` | `0` = all rows |
 | `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Upsert target |
 
-Presets: `cheap` (24) · `middle` (+ONB, DBC → 26) · `full` / `all` (29)
+Presets: `cheap` (24) · `standard` (+ONB, DBC → 26) · `full` / `all` (29)
 
 **Before starting on Hive:** stop any old magic/nursery jobs (`pkill -f "magic.csv"`). Only one dataset at a time.
 
@@ -362,7 +362,7 @@ Presets: `cheap` (24) · `middle` (+ONB, DBC → 26) · `full` / `all` (29)
 | `MISSING_VALUES` | `impute_median` | Same as CLI |
 | `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Combined results |
 | `COMPLEXITY_MAX_ROWS` | `0` | Global subsample cap (`0` = all rows) |
-| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset — 24 metrics (see `middle`, `full`) |
+| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset — 24 metrics (see `standard`, `full`) |
 | `PYCOL_DISTANCE_MATRIX` | `auto` | `auto` (from preset), or force `skip` / `dist` / `both` |
 | `DATASETS` | see script | `source\|ref\|label\|[max_rows]` per line |
 | `DRY_RUN` | `0` | `1` = print only |
@@ -395,7 +395,7 @@ PyCol implements meta-features from the **classification complexity** literature
 |--------|---------|-----------|-----------------|
 | **`cheap_minimal`** | F1, F2, F3, F4, F1v, input_noise, purity | **`skip`** | None |
 | **`cheap`** | **24 metrics** — all except **T1, NSG, ICSV, ONB, DBC** | **`dist`** | One matrix when needed |
-| **`middle`** | **26 metrics** — cheap **+ ONB + DBC** | **`dist`** | One matrix when needed |
+| **`standard`** | **26 metrics** — cheap **+ ONB + DBC** | **`dist`** | One matrix when needed |
 | **`expensive_core`** | T1, NSG, ICSV | **`both`** | `dist` + `unnorm` |
 | **`expensive`** | Same as `expensive_core` | **`both`** | `dist` + `unnorm` |
 | **`all`** / **`full`** | Full catalog (29 metrics) | **`both`** | `dist` + `unnorm` |
@@ -532,7 +532,7 @@ requirements.txt
 | Run >1 day on magic/nursery | Default `METRICS=cheap` skips NSG/ICSV; kill duplicate jobs (`ps aux \| grep magic`); one `./run_one_pycol.sh` at a time |
 | Two magic jobs at once | `pkill -f "parallel_complexity_cli.py.*magic.csv"` then single `./run_one_pycol.sh magic` |
 | Metrics missing in CSV | Tier was `skip` — check `pycol_metrics_omitted_need_distance`; use `cheap` or higher |
-| NSG / ICSV / ONB / DBC empty | Expected with **`cheap`** (skipped on purpose for large *n*); use **`middle`** or **`full`** |
+| NSG / ICSV / ONB / DBC empty | Expected with **`cheap`** (skipped on purpose for large *n*); use **`standard`** or **`full`** |
 | OOM with `cheap` on huge n | Normal — use `COMPLEXITY_MAX_ROWS` or `\|max_rows` on batch line |
 | Adult + `drop_rows` empty | Use `impute_median` |
 | Streamlit UI stale | Hard-refresh browser tab |
