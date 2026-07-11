@@ -1,0 +1,109 @@
+=== HOST ===
+hive-Precision-7820-Tower
+Sat Jul 11 11:03:27 AM IST 2026
+80
+ 11:03:27 up 41 days, 22:14,  6 users,  load average: 5.04, 5.06, 5.06
+
+=== LOG AGE ===
+-rw-rw-r-- 1 aghil.hooshmand aghil.hooshmand 31450 Jul 10 14:45 results/logs/magic.csv.log
+
+=== LAST 50 LOG LINES ===
+[1/4] Loading dataset …
+      Loaded `magic.csv`  shape=(19020, 11)
+[2/4] Encoding features and labels …
+      Ready: n_rows=19020  n_features=10  n_classes=2  missing_values='impute_median'  n_jobs=1
+      PyCol: HEOM tier `both` for distance metrics.
+      PyCol resume: 18 already saved, 11 remaining
+        skipped: F1, F1v, F2, F3, F4, input_noise, R_value, deg_overlap, N3, SI, … (+8 more)
+[3/4] PyCol: computing 11 metric(s) sequentially (18 already saved, single Complexity, n=19020, dtype=float64) …
+      PyCol: building HEOM distance matrix (can take hours on large n) …
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `ONB` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]========== INTERRUPTED magic.csv ==========
+ref: /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv
+source: csv
+phase: pycol
+completed (18): F1, F1v, F2, F3, F4, input_noise, R_value, deg_overlap, N3, SI, N4, kDN, D3_value, CM, N1, T1, Clust, purity
+pending (11): ONB, LSC, DBC, N2, NSG, ICSV, MRCA, C1, C2, neighbourhood_separability, borderline
+Re-run the same command to resume (metrics already in CSV are skipped).
+
+========== END 2026-07-10T12:48:28+01:00 exit=120 elapsed=632s ==========
+========== START 2026-07-10T13:27:50+01:00 ==========
+/home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64 
+
+[1/4] Loading dataset …
+      Loaded `magic.csv`  shape=(19020, 11)
+[2/4] Encoding features and labels …
+      Ready: n_rows=19020  n_features=10  n_classes=2  missing_values='impute_median'  n_jobs=78 (auto load1=1.2, cpus=80, idle≈78)
+      PyCol: HEOM tier `both` for distance metrics.
+      PyCol resume: 18 already saved, 11 remaining
+        skipped: F1, F1v, F2, F3, F4, input_noise, R_value, deg_overlap, N3, SI, … (+8 more)
+[3/4] PyCol: build HEOM once, then 11 metric(s) (18 already saved, n=19020, parallel HEOM (11 workers); shared-matrix metrics (≤11 workers); n_jobs=11 [auto load1=1.2, cpus=80, idle≈78]) …
+      PyCol: building HEOM distance matrix (can take hours on large n) …
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `ONB` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `LSC` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `DBC` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `N2` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `NSG` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `ICSV` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `MRCA` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `C1` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `C2` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `neighbourhood_separability` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]                                                                PyCol [19/29] `borderline` … (11 to go)
+PyCol metrics:  62%|██████▏   | 18/29 [00:00<?, ?metric/s]PyCol metrics:  66%|██████▌   | 19/29 [01:47<17:57, 107.74s/metric]                                                                         PyCol [19/29] `borderline` done — 10 remaining
+PyCol metrics:  66%|██████▌   | 19/29 [01:47<17:57, 107.74s/metric]PyCol metrics:  69%|██████▉   | 20/29 [03:26<15:22, 102.45s/metric]                                                                         PyCol [20/29] `LSC` done — 9 remaining
+PyCol metrics:  69%|██████▉   | 20/29 [03:26<15:22, 102.45s/metric]PyCol metrics:  72%|███████▏  | 21/29 [03:52<09:01, 67.75s/metric]                                                                         PyCol [21/29] `N2` done — 8 remaining
+PyCol metrics:  72%|███████▏  | 21/29 [03:52<09:01, 67.75s/metric]PyCol metrics:  76%|███████▌  | 22/29 [05:19<08:45, 75.07s/metric]                                                                        PyCol [22/29] `C1` done — 7 remaining
+PyCol metrics:  76%|███████▌  | 22/29 [05:19<08:45, 75.07s/metric]PyCol metrics:  79%|███████▉  | 23/29 [05:20<04:51, 48.62s/metric]                                                                        PyCol [23/29] `C2` done — 6 remaining
+PyCol metrics:  79%|███████▉  | 23/29 [05:20<04:51, 48.62s/metric]PyCol metrics:  83%|████████▎ | 24/29 [32:40<49:07, 589.40s/metric]                                                                         PyCol [24/29] `neighbourhood_separability` done — 5 remaining
+PyCol metrics:  83%|████████▎ | 24/29 [32:40<49:07, 589.40s/metric]PyCol metrics:  86%|████████▌ | 25/29 [1:17:04<1:24:31, 1267.86s/metric]                                                                              PyCol [25/29] `MRCA` done — 4 remaining
+PyCol metrics:  86%|████████▌ | 25/29 [1:17:04<1:24:31, 1267.86s/metric]
+=== PROCESS ===
+aghil.h+ 2005533  0.0  0.0   9948  3816 pts/1    S+   Jul06   0:00 bash ./run_one_pycol.sh magic
+aghil.h+ 2005541 99.8  7.0 16021316 9223280 pts/1 Rl+ Jul06 6919:03 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 1 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189463  0.0  0.0   9948  3820 pts/8    S+   Jul10   0:00 bash ./run_one_pycol.sh magic
+aghil.h+ 2189471  0.0  4.4 11676436 5885008 pts/8 Sl+ Jul10   0:44 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189614 99.9  7.3 15713432 9703396 pts/8 R+  Jul10 1294:34 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189615  0.2  4.4 11544332 5807708 pts/8 S+  Jul10   3:26 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189616 99.9  6.9 15713432 9073940 pts/8 R+  Jul10 1294:34 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189617  0.2  4.4 11543308 5807412 pts/8 S+  Jul10   3:52 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189618 99.9  7.0 15713432 9305464 pts/8 R+  Jul10 1294:38 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189619 99.9  6.7 15713432 8889560 pts/8 R+  Jul10 1294:33 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189620  5.9  4.4 19379604 5826220 pts/8 Sl+ Jul10  77:30 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189621  0.4  4.4 11543308 5807580 pts/8 S+  Jul10   5:19 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189622  0.4  4.4 11543308 5812308 pts/8 S+  Jul10   5:20 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189623  2.5  4.4 11554052 5824160 pts/8 S+  Jul10  32:39 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2189624  0.1  4.4 11543308 5812308 pts/8 S+  Jul10   1:47 /home/aghil.hooshmand/projects/DataComplexity/.venv/bin/python /home/aghil.hooshmand/projects/DataComplexity/parallel_complexity_cli.py --source csv --ref /home/aghil.hooshmand/projects/DataComplexity/pmlb_DS/magic.csv --label-column target --library pycol --metrics all --n-jobs 0 --missing-values impute_median --output-csv /home/aghil.hooshmand/projects/DataComplexity/results/datasets_complexity_summary.csv --upsert-key dataset_file --failure-log /home/aghil.hooshmand/projects/DataComplexity/results/logs/magic.csv.log --pycol-distance-matrix auto --pycol-matrix-dtype float64
+aghil.h+ 2196449  0.0  0.0  10588  5060 pts/10   S+   00:54   0:00 nano run_one_pycol.sh
+
+=== CPU (top) ===
+top - 11:03:27 up 41 days, 22:14,  6 users,  load average: 5.04, 5.06, 5.06
+Tasks: 987 total,   6 running, 981 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  2.6 us,  4.0 sy,  0.0 ni, 93.4 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem : 128386.3 total,  74877.4 free,  34551.1 used,  20044.3 buff/cache     
+MiB Swap:   8192.0 total,   8126.2 free,     65.8 used.  93835.2 avail Mem 
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+2189614 aghil.h+  20   0   15.0g   8.9g  19896 R  92.9   7.1     21,34 python
+2189616 aghil.h+  20   0   15.0g   8.3g  19172 R  92.9   6.6     21,34 python
+2189618 aghil.h+  20   0   15.0g   8.5g  19264 R  92.9   6.8     21,34 python
+2189619 aghil.h+  20   0   15.0g   9.4g  19112 R  92.9   7.5     21,34 python
+2005541 aghil.h+  20   0   15.3g   8.5g  88632 R  85.7   6.8    4d+19h python
+2202829 aghil.h+  20   0   14496   5808   3560 R  21.4   0.0   0:00.07 top
+      1 root      20   0   23960  10816   5920 S   0.0   0.0  12:16.23 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:21.05 kthreadd
+      3 root      20   0       0      0      0 S   0.0   0.0   0:00.00 pool_wo+
+      4 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      5 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      6 root       0 -20       0      0      0 I   0.0   0.0   0:00.56 kworker+
+      7 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+      8 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+     11 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+     13 root       0 -20       0      0      0 I   0.0   0.0   0:00.00 kworker+
+     14 root      20   0       0      0      0 S   0.0   0.0   3:06.83 ksoftir+
+     15 root      20   0       0      0      0 I   0.0   0.0  81:20.61 rcu_pre+
+
+=== MAGIC METRICS IN CSV ===
+filled: 25/29
+filled: C1, C2, CM, Clust, D3_value, F1, F1v, F2, F3, F4, LSC, MRCA, N1, N2, N3, N4, R_value, SI, T1, borderline, deg_overlap, input_noise, kDN, neighbourhood_separability, purity
+missing: DBC, ICSV, NSG, ONB

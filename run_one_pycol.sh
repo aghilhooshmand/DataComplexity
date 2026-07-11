@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
-# Run PyCol (preset=all, full sample) for ONE dataset at a time.
+# Run PyCol for ONE dataset at a time (Hive-friendly).
+# Default preset: cheap — skips T1, NSG, ICSV (multi-day on large n).
 # Parallelism is automatic: cores from system load, shared HEOM matrix, parallel metrics.
 #
 # Usage:
 #   ./run_one_pycol.sh ring
 #   ./run_one_pycol.sh mushroom.csv
-#   ./run_one_pycol.sh --list          # show names under pmlb_DS/
+#   ./run_one_pycol.sh --list
+#   METRICS=all ./run_one_pycol.sh ring    # full catalog incl. NSG/ICSV (very slow on large n)
 #   DRY_RUN=1 ./run_one_pycol.sh magic
 #
 set -euo pipefail
@@ -25,9 +27,11 @@ fi
 OUTPUT_CSV="${OUTPUT_CSV:-${SCRIPT_DIR}/results/datasets_complexity_summary.csv}"
 UPSERT_KEY="${UPSERT_KEY:-dataset_file}"
 LOG_DIR="${LOG_DIR:-${SCRIPT_DIR}/results/logs}"
+LOCK_DIR="${LOCK_DIR:-${SCRIPT_DIR}/results/locks}"
 MISSING_VALUES="${MISSING_VALUES:-impute_median}"
 LABEL_COLUMN="${LABEL_COLUMN:-target}"
-METRICS="${METRICS:-all}"
+# cheap = all PyCol except T1, NSG, ICSV (~½ matrix RAM; finishes in hours not days on large n).
+METRICS="${METRICS:-cheap}"
 COMPLEXITY_MAX_ROWS="${COMPLEXITY_MAX_ROWS:-0}"
 PYCOL_DISTANCE_MATRIX="${PYCOL_DISTANCE_MATRIX:-auto}"
 PYCOL_MATRIX_DTYPE="${PYCOL_MATRIX_DTYPE:-float64}"
@@ -42,10 +46,11 @@ Usage: $(basename "$0") <dataset>
   <dataset>  basename without path, e.g. ring or ring.csv
              (file must exist under ${PMLB_DIR}/)
 
-One dataset at a time. Parallel HEOM + shared-matrix metrics are automatic.
-N_JOBS=0 (default) uses available cores minus system load; set N_JOBS=70 to cap.
+One dataset at a time. Default METRICS=cheap (skips T1, NSG, ICSV).
+Parallel HEOM + shared-matrix metrics are automatic.
+N_JOBS=0 uses available cores minus system load.
 Results: ${OUTPUT_CSV}
-Log:     ${LOG_DIR}/<dataset>.csv.log  (one file per dataset; stdout + errors)
+Log:     ${LOG_DIR}/<dataset>.csv.log
 
 Options:
   --list     print available *.csv names in pmlb_DS/
@@ -74,6 +79,28 @@ resolve_csv() {
   printf '%s\n' "${path}"
 }
 
+acquire_lock() {
+  local lock_file="$1"
+  mkdir -p "$(dirname "${lock_file}")"
+  if [[ -f "${lock_file}" ]]; then
+    local old_pid
+    old_pid="$(cat "${lock_file}" 2>/dev/null || true)"
+    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" 2>/dev/null; then
+      echo "ERROR: ${DATASET_FILE} is already running (pid ${old_pid})." >&2
+      echo "       Stop it first: kill ${old_pid}" >&2
+      echo "       Lock: ${lock_file}" >&2
+      exit 1
+    fi
+    echo "Removing stale lock for ${DATASET_FILE} (pid ${old_pid:-?} not running)." >&2
+    rm -f "${lock_file}"
+  fi
+  echo "$$" >"${lock_file}"
+}
+
+release_lock() {
+  rm -f "$1"
+}
+
 if [[ $# -lt 1 ]]; then
   usage >&2
   exit 1
@@ -94,6 +121,7 @@ DATASET_ARG="$1"
 CSV_PATH="$(resolve_csv "${DATASET_ARG}")"
 DATASET_FILE="$(basename "${CSV_PATH}")"
 DS_LOG="${LOG_DIR}/${DATASET_FILE}.log"
+LOCK_FILE="${LOCK_DIR}/${DATASET_FILE}.lock"
 
 mkdir -p "$(dirname "${OUTPUT_CSV}")" "${LOG_DIR}"
 
@@ -120,6 +148,7 @@ fi
 echo "Dataset: ${DATASET_FILE}" >&2
 echo "Output:  ${OUTPUT_CSV}" >&2
 echo "Log:     ${DS_LOG}" >&2
+echo "Metrics: ${METRICS} (cheap skips T1, NSG, ICSV)" >&2
 if [[ "${N_JOBS}" == "0" ]]; then
   echo "Mode:    auto n_jobs (cpus − load); parallel HEOM + shared metrics" >&2
 else
@@ -131,6 +160,9 @@ if [[ "${DRY_RUN}" == "1" ]]; then
   echo
   exit 0
 fi
+
+acquire_lock "${LOCK_FILE}"
+trap 'release_lock "${LOCK_FILE}"' EXIT
 
 started_at="$(date -Iseconds)"
 started_epoch="${SECONDS}"

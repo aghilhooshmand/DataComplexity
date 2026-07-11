@@ -31,7 +31,7 @@ from complexity_core import (
     subsample_xy_for_complexity,
 )
 
-CLI_VERSION = "1.8.0"
+CLI_VERSION = "1.9.0"
 
 
 def resolve_n_jobs(requested: int, *, n_tasks: int | None = None) -> tuple[int, str]:
@@ -963,7 +963,8 @@ def _run_cli_body(args: argparse.Namespace) -> None:
         n_pycol = int(x_met.shape[0])
         parallel_heom = pycol_matrix_mode != "skip" and not args.no_pycol_parallel_heom
         parallel_metrics = not args.no_pycol_parallel_metrics
-        pycol_n_jobs, pycol_jobs_note = resolve_n_jobs(
+        heom_n_jobs, heom_jobs_note = resolve_n_jobs(n_jobs_requested)
+        metric_n_jobs, metric_jobs_note = resolve_n_jobs(
             n_jobs_requested,
             n_tasks=len(pending_metrics) if parallel_metrics else None,
         )
@@ -971,26 +972,30 @@ def _run_cli_body(args: argparse.Namespace) -> None:
             if not pending_metrics:
                 step("      PyCol: all metrics already saved in CSV — nothing to compute.")
             else:
-                metric_workers = pycol_n_jobs if parallel_metrics else 0
+                metric_workers = metric_n_jobs if parallel_metrics else 0
                 n_workers = max(
                     1,
                     min(
-                        pycol_n_jobs,
+                        metric_n_jobs,
                         len(pending_metrics),
                         max(1, mp.cpu_count() or 1),
                     ),
                 )
                 mode_bits: list[str] = []
                 if parallel_heom:
-                    mode_bits.append(f"parallel HEOM ({pycol_n_jobs} workers)")
+                    mode_bits.append(
+                        f"parallel HEOM ({heom_n_jobs} workers [{heom_jobs_note}])"
+                    )
                 if parallel_metrics:
-                    mode_bits.append(f"shared-matrix metrics (≤{n_workers} workers)")
+                    mode_bits.append(
+                        f"shared-matrix metrics (≤{n_workers} workers [{metric_jobs_note}])"
+                    )
                 else:
                     mode_bits.append("sequential metrics")
                 phase(
                     f"PyCol: build HEOM once, then {len(pending_metrics)} metric(s) "
                     f"({len(already_done)} already saved, n={n_pycol}, "
-                    f"{'; '.join(mode_bits)}; n_jobs={pycol_n_jobs} [{pycol_jobs_note}]) …"
+                    f"{'; '.join(mode_bits)}) …"
                 )
                 prog_cb = make_pycol_progress_callback(
                     show_progress, initial_completed=len(already_done)
@@ -1003,7 +1008,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                         matrix_mode=pycol_matrix_mode,
                         preset=pycol_preset,
                         parallel_heom=parallel_heom,
-                        heom_n_jobs=pycol_n_jobs,
+                        heom_n_jobs=heom_n_jobs,
                         matrix_dtype=matrix_dtype,
                         progress_callback=prog_cb,
                         existing_pycol=existing_row if not args.pycol_no_resume else None,
@@ -1013,6 +1018,8 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                     )
                 )
                 result["pycol_auto_parallel"] = parallel_heom or bool(metric_workers)
+                result["pycol_heom_workers"] = heom_n_jobs if parallel_heom else 1
+                result["pycol_metric_workers_requested"] = metric_workers
         except KeyboardInterrupt:
             record_pycol_interrupt(
                 failure_log=failure_log,

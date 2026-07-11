@@ -7,7 +7,8 @@ Use it three ways:
 | Mode | Best for |
 |------|----------|
 | **Streamlit app** | Interactive exploration, plots, metric reference |
-| **CLI** (`parallel_complexity_cli.py` **v1.7.0**) | One dataset, servers, automation |
+| **CLI** (`parallel_complexity_cli.py` **v1.9.0**) | One dataset, servers, automation |
+| **One-dataset shell** (`run_one_pycol.sh`) | Hive / server: one PMLB CSV, resume, lock |
 | **Batch shell** (`run_batch_parallel.sh`) | Many UCI/OpenML/CSV datasets into one CSV |
 
 **Maintainer:** Aghil Hooshmand — Research Fellow, FORGE · BDS, University of Limerick · `aghil.hooshmand@ul.ie`
@@ -70,7 +71,16 @@ chmod +x run_batch_parallel.sh
 ./run_batch_parallel.sh
 ```
 
-Results: `results/batch_parallel_complexity.csv` (one row per dataset, upserted by `dataset_name`).
+**One PMLB dataset on a server (Hive):**
+
+```bash
+chmod +x run_one_pycol.sh
+./run_one_pycol.sh magic          # default METRICS=cheap (skips T1, NSG, ICSV)
+./run_one_pycol.sh nursery
+METRICS=all ./run_one_pycol.sh ring   # full catalog — very slow on large n
+```
+
+Results: `results/datasets_complexity_summary.csv` (upserted by `dataset_file`). Logs: `results/logs/<dataset>.csv.log`.
 
 ---
 
@@ -323,19 +333,34 @@ Edit variables at the top of [`run_batch_parallel.sh`](run_batch_parallel.sh), t
 DRY_RUN=1 ./run_batch_parallel.sh
 ```
 
+### One dataset (`run_one_pycol.sh`)
+
+For a single file under `pmlb_DS/` with resume, logging, and a **lock** so two runs cannot start for the same dataset:
+
+```bash
+./run_one_pycol.sh magic
+```
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `METRICS` | `cheap` | Skips **T1, NSG, ICSV** (multi-day on large *n*) |
+| `N_JOBS` | `0` | Auto: `cpus − load`; or set e.g. `70` |
+| `COMPLEXITY_MAX_ROWS` | `0` | `0` = all rows |
+| `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Upsert target |
+
+**Before starting on Hive:** stop any old magic/nursery jobs (`pkill -f "magic.csv"`). Only one dataset at a time.
+
 ### Batch variables
 
 | Variable | Typical value | Meaning |
 |----------|---------------|---------|
 | `LIBRARY` | `pycol` | `pycol`, `pymfe`, or `both` |
-| `N_JOBS` | `24` | Worker cap (HEOM + optional metric pool) |
+| `N_JOBS` | `0` | `0` = auto (`cpus − load`); or cap e.g. `32` |
 | `MISSING_VALUES` | `impute_median` | Same as CLI |
-| `OUTPUT_CSV` | `results/batch_parallel_complexity.csv` | Combined results |
+| `OUTPUT_CSV` | `results/datasets_complexity_summary.csv` | Combined results |
 | `COMPLEXITY_MAX_ROWS` | `0` | Global subsample cap (`0` = all rows) |
-| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset or comma list |
+| `PYCOL_METRICS_ARG` | `cheap` | PyCol preset — skips T1, NSG, ICSV |
 | `PYCOL_DISTANCE_MATRIX` | `auto` | `auto` (from preset), or force `skip` / `dist` / `both` |
-| `PYCOL_PARALLEL_HEOM` | `1` | Adds `--pycol-parallel-heom` when tier is not `skip` |
-| `PYCOL_PARALLEL_METRICS` | `0` | Keep `0` for full-sample + build on large sets |
 | `DATASETS` | see script | `source\|ref\|label\|[max_rows]` per line |
 | `DRY_RUN` | `0` | `1` = print only |
 | `CONTINUE_ON_ERROR` | `1` | Continue after a failed dataset |
@@ -466,8 +491,10 @@ Exit code **0** = PASS. See also [`docs/pycol_heom_build_slides.md`](docs/pycol_
 | `pycol_metrics_omitted_need_distance` | Metrics skipped because tier is `skip` |
 | `pycol_sequential_large_n` | True when n ≥ 5000 sequential path was used |
 | `pycol_heom_parallel` | True when parallel HEOM was used |
+| `pycol_heom_workers` | HEOM build worker count |
+| `pycol_metric_workers_requested` | Parallel metric worker cap |
 | `complexity_subsampled`, `complexity_max_rows` | Subsample metadata |
-| `parallel_cli_version` | CLI version string (**1.7.0**) |
+| `parallel_cli_version` | CLI version string (**1.9.0**) |
 
 ---
 
@@ -478,8 +505,9 @@ app.py                          # Streamlit home
 pages/                          # Calculator, Comparison, Metric Reference, …
 complexity_core.py              # prepare_xy, presets, compute_pycol_metrics
 pycol_heom.py                   # Fast HEOM matrix build
-parallel_complexity_cli.py      # CLI v1.7.0
+parallel_complexity_cli.py      # CLI v1.9.0
 run_batch_parallel.sh           # Multi-dataset batch
+run_one_pycol.sh                # One PMLB dataset (Hive); default cheap preset
 validate_pycol_heom.py          # Native vs build matrix check
 metric_catalog.py               # Metric titles and references
 metric_ui.py                    # Streamlit metric controls
@@ -497,8 +525,10 @@ requirements.txt
 | `ModuleNotFoundError` | `source .venv/bin/activate` and `pip install -r requirements.txt` |
 | UCI / OpenML load fails | Check id/URL, network, `ucimlrepo` / `openml` install |
 | Process killed / OOM | `cheap_minimal` + `skip`, or lower `--complexity-max-rows`, or per-dataset `max_rows` in batch |
-| Very slow, one CPU | Expected for large n during N3; enable `--pycol-parallel-heom`; avoid `--pycol-parallel-metrics` on large n |
+| Run >1 day on magic/nursery | Default `METRICS=cheap` skips NSG/ICSV; kill duplicate jobs (`ps aux \| grep magic`); one `./run_one_pycol.sh` at a time |
+| Two magic jobs at once | `pkill -f "parallel_complexity_cli.py.*magic.csv"` then single `./run_one_pycol.sh magic` |
 | Metrics missing in CSV | Tier was `skip` — check `pycol_metrics_omitted_need_distance`; use `cheap` or higher |
+| NSG / ICSV empty | Expected with `cheap` preset (skipped on purpose for large *n*) |
 | OOM with `cheap` on huge n | Normal — use `COMPLEXITY_MAX_ROWS` or `\|max_rows` on batch line |
 | Adult + `drop_rows` empty | Use `impute_median` |
 | Streamlit UI stale | Hard-refresh browser tab |

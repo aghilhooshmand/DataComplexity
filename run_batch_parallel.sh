@@ -15,7 +15,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # Shared CLI arguments (edit here)
-# Tuned for Hive: full sample, ALL PyCol metrics, HEOM matrices in RAM (float64).
+# Tuned for Hive: full sample, cheap PyCol preset (skips T1/NSG/ICSV), HEOM in RAM (float64).
 # ---------------------------------------------------------------------------
 LIBRARY="pycol"                    # pycol | pymfe | both
 # Worker cap: 0 = auto (cpus minus load). Set e.g. 32 to leave headroom on shared Hive.
@@ -41,8 +41,8 @@ COMPLEXITY_MAX_ROWS="0"
 #   custom        — use PYCOL_CUSTOM_METRICS below (comma list), e.g. N1,N3,F1,F1v
 #   N1,N3,F1      — bare comma list also works (PYCOL_CUSTOM_METRICS still ignored)
 #
-# Active setting: "all" → full catalog incl. T1, NSG, ICSV (two HEOM matrices).
-PYCOL_METRICS_ARG="all"
+# Active setting: "cheap" — all PyCol except T1, NSG, ICSV (one matrix max; practical on large n).
+PYCOL_METRICS_ARG="cheap"
 # Ignored while PYCOL_METRICS_ARG is not "custom" (example list for when you switch to custom):
 PYCOL_CUSTOM_METRICS="F1,F2,F3,F4,F1v,input_noise,purity,N2,N3,C1,C2"
 
