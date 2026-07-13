@@ -1,0 +1,38 @@
+{
+  "cli_version": "1.0.0",
+  "output_csv": "results/synthetic/test_fusion.csv",
+  "metric_sources": {
+    "F1": "ring.csv",
+    "F2": "twonorm.csv"
+  },
+  "patterns": [
+    {
+      "source": "ring",
+      "file": "ring.csv",
+      "metric_tag": "F1",
+      "n_features": 20
+    },
+    {
+      "source": "twonorm",
+      "file": "twonorm.csv",
+      "metric_tag": "F2",
+      "n_features": 20
+    }
+  ],
+  "mode": "targeted",
+  "n_rows": 200,
+  "n_features": 40,
+  "n_classes": 2,
+  "source_files": [
+    "ring.csv",
+    "twonorm.csv"
+  ],
+  "target_metrics": [
+    "F1",
+    "F2"
+  ],
+  "verified_metrics": {
+    "F1": 0.8324376492318779,
+    "F2": 4.7450201156722e-10
+  }
+}
