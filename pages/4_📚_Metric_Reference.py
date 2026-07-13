@@ -3,7 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
+from metric_catalog import (
+    METRIC_DIRECTION_LABELS,
+    PYMFE_COMPLEXITY_METRICS,
+    PYCOL_METRICS,
+    metric_direction_label,
+)
 from metric_ui import metric_display_name
 from pycol_reference import (
     PYCOL_AIRE_PAPER,
@@ -26,6 +31,7 @@ def docs_to_df(items: dict, library: str) -> pd.DataFrame:
         [
             {
                 "metric": metric_display_name(doc.key, library),
+                "direction": metric_direction_label(doc.direction),
                 "title": doc.title,
                 "description": doc.description,
                 "reference": doc.reference,
@@ -102,7 +108,12 @@ See the **Illustrations** tab for figures from the PyCol documentation.
             st.markdown(", ".join(f"**{m}**" for m in cat.measures))
 
 with tab_metrics:
-    st.caption("Metrics wired in this app (not the full PyCol catalog).")
+    st.caption(
+        "Full PyCol catalog (29 metrics) and PyMFE complexity meta-features. "
+        "**Direction** shows how to read larger values when comparing datasets: "
+        + "; ".join(METRIC_DIRECTION_LABELS.values())
+        + "."
+    )
     sub_pycol, sub_pymfe = st.tabs(["pycol", "pymfe"])
     with sub_pycol:
         st.dataframe(docs_to_df(PYCOL_METRICS, "pycol"), use_container_width=True, hide_index=True)

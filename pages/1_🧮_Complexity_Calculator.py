@@ -24,7 +24,7 @@ from metric_ui import (
     render_pycol_recompute_choice,
     resolve_pycol_existing_row,
 )
-from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
+from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS, metric_direction_label
 from results_export import render_save_results_section
 
 
@@ -157,6 +157,7 @@ def render_metric_docs(library: str, selected: list[str]) -> None:
             st.caption("No local description card. This metric is still computed and included in output.")
             continue
         st.markdown(f"**{label}** — {doc.title}")
+        st.caption(f"Direction: {metric_direction_label(doc.direction)}")
         st.caption(doc.description)
         st.caption(f"Reference: {doc.reference}")
         st.divider()
