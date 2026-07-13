@@ -64,8 +64,8 @@ st.markdown(
 - **`PMLB Benchmark`**  
   Browse [PMLB](https://github.com/EpistasisLab/pmlb) datasets in `pmlb_DS/`, view metadata and **pre-computed PyCol metrics** (`datasets_complexity_summary.csv`), compare datasets, and optional t-SNE.
 
-- **`Synthetic Fusion`**  
-  Step-by-step **Synthetic Complexity Fusion (SCF)**: profile datasets by metric hardness, pick exemplars, fuse Gaussian feature-block patterns, verify PyCol metrics, and save CSV to `results/synthetic/`.
+- **`Synthetic Fusion` (Harder Dataset Generator)**  
+  Pick **one anchor** dataset, choose **metrics to boost** (e.g. C1), auto-pick a **donor** exemplar per metric, then add harder samples **inside the anchor's own classes** — compare metrics before/after and save CSV.
 
 **Command-line:** use `parallel_complexity_cli.py` with `--missing-values` for the same strategies on a server (see `README.md`).  
 **Synthetic datasets:** `python synthetic_fusion_cli.py --help`  

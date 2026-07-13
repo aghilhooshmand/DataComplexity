@@ -238,6 +238,22 @@ def stress_source_datasets(
     return files
 
 
+def dataset_hardness_rank(
+    profiled: pd.DataFrame,
+    dataset_ref: str,
+    metric: str,
+) -> float | None:
+    """Hardness percentile in [0, 1] for one dataset on one metric (higher = harder)."""
+    file_key = dataset_name_to_file_key(dataset_ref)
+    hard_col = f"hard_{pycol_column_to_key(pycol_key_to_column(metric))}"
+    if "dataset_file" not in profiled.columns or hard_col not in profiled.columns:
+        return None
+    row = profiled[profiled["dataset_file"].astype(str) == file_key]
+    if row.empty or pd.isna(row.iloc[0][hard_col]):
+        return None
+    return float(row.iloc[0][hard_col])
+
+
 def exemplar_table(profiled: pd.DataFrame, metrics: list[str], *, top_k: int = 3) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for metric in metrics:

@@ -8,35 +8,24 @@ import streamlit as st
 from complexity_profiler import (
     exemplar_table,
     profile_summary,
-    stress_source_datasets,
     top_exemplars_for_metric,
 )
 from metric_catalog import PYCOL_METRICS, metric_direction_label
 from metric_ui import metric_display_name
-from pmlb_io import DEFAULT_OUTPUT_DIR, list_downloaded_datasets
+from pmlb_io import DEFAULT_OUTPUT_DIR, list_downloaded_datasets, pycol_metric_columns
 from results_export import render_save_results_section
 from summary_dashboard import resolve_complexity_summary_path
-from synthetic_fusion import SyntheticFusionConfig, generate_synthetic_dataset
+from synthetic_fusion import AnchorAugmentConfig, generate_augmented_dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SYNTHETIC_DIR = PROJECT_ROOT / "results" / "synthetic"
 
-PYCOL_FUSION_METRICS = sorted(PYCOL_METRICS.keys())
+PYCOL_BOOST_METRICS = sorted(PYCOL_METRICS.keys())
 
 
 @st.cache_data(show_spinner=False)
 def _cached_profile(summary_mtime_ns: int, summary_path: str, threshold: float) -> pd.DataFrame:
     return profile_summary(summary_path=summary_path, threshold=threshold)
-
-
-def _init_session() -> None:
-    defaults = {
-        "scf_step": 1,
-        "scf_result_df": None,
-        "scf_result_meta": None,
-    }
-    for k, v in defaults.items():
-        st.session_state.setdefault(k, v)
 
 
 def _summary_mtime(path: Path) -> int:
@@ -46,24 +35,26 @@ def _summary_mtime(path: Path) -> int:
         return 0
 
 
-st.set_page_config(page_title="Synthetic Fusion", layout="wide")
-st.title("🧪 Synthetic Complexity Fusion")
+st.set_page_config(page_title="Dataset Augmentation", layout="wide")
+st.title("🧪 Harder Dataset Generator")
 st.markdown(
     """
-Build **hard synthetic datasets** by fusing patterns from real PMLB datasets ranked on PyCol metrics.
-Workflow: **profile → pick metrics & sources → generate → verify → save**.
+Pick **one anchor dataset** (e.g. `ring`, already hard on F1). Choose **metrics to boost** (e.g. C1).
+The app finds a **donor** dataset that is hardest on each metric, then generates **new samples inside
+the anchor's own classes** — labels keep their anchor meaning.
 
-CLI equivalent: `python synthetic_fusion_cli.py --help`
+CLI: `python synthetic_fusion_cli.py --anchor ring --boost-metrics C1 --output ...`
 """
 )
 
-_init_session()
+if "scf_step" not in st.session_state:
+    st.session_state["scf_step"] = 1
 
 steps = [
-    "1. Load complexity profile",
-    "2. Mode & target metrics",
-    "3. Source datasets",
-    "4. Generation settings",
+    "1. Load profile",
+    "2. Anchor dataset",
+    "3. Metrics & donors",
+    "4. Settings",
     "5. Generate & save",
 ]
 step = st.sidebar.radio(
@@ -76,7 +67,6 @@ st.session_state["scf_step"] = step
 
 if step == 1:
     st.header("Step 1 — Load complexity profile")
-    st.caption("Uses `datasets_complexity_summary.csv` to rank datasets per metric (Phase 1).")
 
     try:
         default_summary = resolve_complexity_summary_path()
@@ -84,339 +74,268 @@ if step == 1:
         st.error(str(exc))
         st.stop()
 
-    summary_path = st.text_input(
-        "Complexity summary CSV",
-        value=str(default_summary),
-        key="scf_summary_path",
-    )
-    archetype_threshold = st.slider(
-        "Archetype hardness threshold (percentile)",
-        min_value=0.5,
-        max_value=0.95,
-        value=0.75,
-        step=0.05,
-        key="scf_archetype_thr",
-    )
+    summary_path = st.text_input("Complexity summary CSV", value=str(default_summary), key="scf_summary_path")
+    threshold = st.slider("Archetype threshold", 0.5, 0.95, 0.75, 0.05, key="scf_archetype_thr")
 
     path = Path(summary_path)
     if not path.is_file():
-        st.warning("Summary file not found. Run batch complexity first or point to a valid CSV.")
+        st.warning("Summary file not found.")
         st.stop()
 
-    profiled = _cached_profile(_summary_mtime(path), str(path), float(archetype_threshold))
-    st.success(f"Loaded **{len(profiled)}** datasets from `{path.name}`.")
+    profiled = _cached_profile(_summary_mtime(path), str(path), float(threshold))
+    st.success(f"Loaded **{len(profiled)}** datasets.")
 
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        st.metric("Datasets", len(profiled))
-    with col_b:
-        st.metric("With archetype tags", int((profiled["archetypes"] != "moderate").sum()))
-    with col_c:
-        hard_cols = [c for c in profiled.columns if c.startswith("hard_")]
-        st.metric("Ranked metrics", len(hard_cols))
+    hard_cols = [c for c in profiled.columns if c.startswith("hard_")][:8]
+    show = [c for c in ["dataset_file", "archetypes", *hard_cols] if c in profiled.columns]
+    st.dataframe(profiled[show].head(15), use_container_width=True, hide_index=True)
 
-    preview_cols = ["dataset_file", "archetypes"] + hard_cols[:6]
-    preview_cols = [c for c in preview_cols if c in profiled.columns]
-    st.dataframe(profiled[preview_cols].head(20), use_container_width=True, hide_index=True)
-
-    if st.button("Continue to metrics →", type="primary", key="scf_s1_next"):
+    if st.button("Continue →", type="primary", key="scf_s1_next"):
         st.session_state["scf_step"] = 2
         st.rerun()
 
 elif step == 2:
-    st.header("Step 2 — Fusion mode & target metrics")
+    st.header("Step 2 — Choose anchor dataset")
+    st.caption("The dataset you want to make harder. Its **class labels stay the same**.")
 
-    mode = st.radio(
-        "Fusion mode",
-        options=["targeted", "stress"],
-        format_func=lambda m: {
-            "targeted": "Targeted — one exemplar per metric (feature-block fusion)",
-            "stress": "Stress — combine several globally hard datasets",
-        }[m],
-        key="scf_mode",
-    )
-
-    default_metrics = st.session_state.get("scf_metrics", ["F1", "F2"])
-    metrics = st.multiselect(
-        "Target metrics",
-        options=PYCOL_FUSION_METRICS,
-        default=default_metrics,
-        format_func=lambda m: f"{m} ({metric_direction_label(PYCOL_METRICS[m].direction)})",
-        key="scf_metrics_pick",
-    )
-    st.session_state["scf_metrics"] = metrics
-
-    if not metrics:
-        st.info("Select at least one metric.")
+    pmlb_names = list_downloaded_datasets(DEFAULT_OUTPUT_DIR)
+    if not pmlb_names:
+        st.error("No CSV files in `pmlb_DS/`.")
         st.stop()
 
-    if mode == "stress":
-        st.session_state["scf_top_sources"] = st.number_input(
-            "Number of stress sources (top hard datasets)",
-            min_value=2,
-            max_value=8,
-            value=int(st.session_state.get("scf_top_sources", 4)),
-            key="scf_top_sources_input",
-        )
+    summary_path = st.session_state.get("scf_summary_path", str(resolve_complexity_summary_path()))
+    profiled = _cached_profile(
+        _summary_mtime(Path(summary_path)),
+        str(summary_path),
+        float(st.session_state.get("scf_archetype_thr", 0.75)),
+    )
 
-    st.markdown("#### Metric direction reminder")
-    dir_rows = [
-        {
-            "metric": metric_display_name(m, "pycol"),
-            "direction": metric_direction_label(PYCOL_METRICS[m].direction),
-        }
-        for m in metrics
-    ]
-    st.dataframe(pd.DataFrame(dir_rows), use_container_width=True, hide_index=True)
+    default_anchor = st.session_state.get("scf_anchor", pmlb_names[0])
+    anchor = st.selectbox(
+        "Anchor dataset",
+        options=pmlb_names,
+        index=pmlb_names.index(default_anchor) if default_anchor in pmlb_names else 0,
+        key="scf_anchor_pick",
+    )
+    st.session_state["scf_anchor"] = anchor
 
-    col_back, col_next = st.columns(2)
-    with col_back:
+    pycol_cols = pycol_metric_columns(profiled)
+    row = profiled[profiled["dataset_file"].astype(str) == f"{anchor}.csv"]
+    if not row.empty and pycol_cols:
+        st.subheader(f"Current metrics for `{anchor}`")
+        r = row.iloc[0]
+        preview = []
+        for c in pycol_cols[:12]:
+            if pd.notna(r.get(c)):
+                preview.append({"metric": c, "value": r[c]})
+        if preview:
+            st.dataframe(pd.DataFrame(preview), use_container_width=True, hide_index=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
         if st.button("← Back", key="scf_s2_back"):
             st.session_state["scf_step"] = 1
             st.rerun()
-    with col_next:
-        if st.button("Continue to sources →", type="primary", key="scf_s2_next"):
+    with c2:
+        if st.button("Continue →", type="primary", key="scf_s2_next"):
             st.session_state["scf_step"] = 3
             st.rerun()
 
 elif step == 3:
-    st.header("Step 3 — Source datasets")
+    st.header("Step 3 — Metrics to boost & donors")
 
-    mode = st.session_state.get("scf_mode", "targeted")
-    metrics = st.session_state.get("scf_metrics", [])
-    summary_path = st.session_state.get("scf_summary_path", str(resolve_complexity_summary_path()))
-    threshold = float(st.session_state.get("scf_archetype_thr", 0.75))
-
-    path = Path(summary_path)
-    if not path.is_file():
-        st.error("Go back to Step 1 and load a valid summary CSV.")
+    anchor = st.session_state.get("scf_anchor", "")
+    if not anchor:
+        st.warning("Pick an anchor in Step 2.")
         st.stop()
 
-    profiled = _cached_profile(_summary_mtime(path), str(summary_path), threshold)
-    pmlb_names = list_downloaded_datasets(DEFAULT_OUTPUT_DIR)
+    st.info(f"Anchor: **{anchor}** — new samples will use **this dataset's classes only**.")
 
-    st.subheader("Auto exemplars (top per metric)")
-    ex_table = exemplar_table(profiled, metrics, top_k=3)
-    if not ex_table.empty:
-        st.dataframe(ex_table, use_container_width=True, hide_index=True)
-    else:
-        st.warning("No exemplars found for selected metrics.")
+    boost = st.multiselect(
+        "Metrics to make harder",
+        options=PYCOL_BOOST_METRICS,
+        default=st.session_state.get("scf_boost_metrics", ["C1"]),
+        format_func=lambda m: f"{m} ({metric_direction_label(PYCOL_METRICS[m].direction)})",
+        key="scf_boost_pick",
+    )
+    st.session_state["scf_boost_metrics"] = boost
 
-    pick_mode = st.radio(
-        "Source selection",
-        options=["auto", "manual"],
-        format_func=lambda x: "Auto (top exemplar per metric)" if x == "auto" else "Manual override",
-        key="scf_source_mode",
+    if not boost:
+        st.stop()
+
+    summary_path = st.session_state.get("scf_summary_path", str(resolve_complexity_summary_path()))
+    profiled = _cached_profile(
+        _summary_mtime(Path(summary_path)),
+        str(summary_path),
+        float(st.session_state.get("scf_archetype_thr", 0.75)),
     )
 
-    if pick_mode == "manual" and mode == "targeted":
-        st.caption("Choose one PMLB dataset per metric (feature block).")
-        manual_map: dict[str, str] = {}
-        for m in metrics:
-            picks = top_exemplars_for_metric(profiled, m, top_k=1)
-            default_ds = picks[0].dataset_file.removesuffix(".csv") if picks else ""
-            options = pmlb_names or ([default_ds] if default_ds else [])
-            idx = options.index(default_ds) if default_ds in options else 0
-            choice = st.selectbox(
-                f"{m} source",
-                options=options,
-                index=idx,
-                key=f"scf_manual_{m}",
-            )
-            manual_map[m] = choice
-        st.session_state["scf_manual_map"] = manual_map
-    elif pick_mode == "manual" and mode == "stress":
-        default_stress = stress_source_datasets(
-            profiled,
-            metrics=metrics,
-            top_n=int(st.session_state.get("scf_top_sources", 4)),
-        )
-        default_stems = [f.removesuffix(".csv") for f in default_stress]
-        chosen = st.multiselect(
-            "Stress source datasets",
-            options=pmlb_names,
-            default=[d for d in default_stems if d in pmlb_names],
-            key="scf_stress_sources",
-        )
-        st.session_state["scf_stress_sources"] = chosen
-    else:
-        st.session_state.pop("scf_manual_map", None)
-        st.session_state.pop("scf_stress_sources", None)
+    st.subheader("Top donors per metric (from corpus)")
+    st.dataframe(exemplar_table(profiled, boost, top_k=3), use_container_width=True, hide_index=True)
 
-    col_back, col_next = st.columns(2)
-    with col_back:
+    donor_mode = st.radio(
+        "Donor selection",
+        ["auto", "manual"],
+        format_func=lambda x: "Auto (hardest dataset per metric)" if x == "auto" else "Manual",
+        key="scf_donor_mode",
+    )
+
+    pmlb_names = list_downloaded_datasets(DEFAULT_OUTPUT_DIR)
+    manual_donors: dict[str, str] = {}
+    if donor_mode == "manual":
+        for m in boost:
+            picks = top_exemplars_for_metric(profiled, m, top_k=1)
+            default_ds = picks[0].dataset_file.removesuffix(".csv") if picks else pmlb_names[0]
+            opts = [n for n in pmlb_names if n != anchor] or pmlb_names
+            idx = opts.index(default_ds) if default_ds in opts else 0
+            manual_donors[m] = st.selectbox(f"Donor for {m}", opts, index=idx, key=f"scf_donor_{m}")
+        st.session_state["scf_manual_donors"] = manual_donors
+    else:
+        st.session_state.pop("scf_manual_donors", None)
+
+    c1, c2 = st.columns(2)
+    with c1:
         if st.button("← Back", key="scf_s3_back"):
             st.session_state["scf_step"] = 2
             st.rerun()
-    with col_next:
-        if st.button("Continue to settings →", type="primary", key="scf_s3_next"):
+    with c2:
+        if st.button("Continue →", type="primary", key="scf_s3_next"):
             st.session_state["scf_step"] = 4
             st.rerun()
 
 elif step == 4:
-    st.header("Step 4 — Generation settings")
+    st.header("Step 4 — Augmentation settings")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.number_input(
-            "Samples per class",
-            min_value=50,
-            max_value=5000,
-            value=500,
-            step=50,
-            key="scf_samples",
-        )
+        st.number_input("New samples per class", 10, 5000, 200, 10, key="scf_new_per_class")
     with c2:
-        st.number_input(
-            "Coupling noise",
-            min_value=0.0,
-            max_value=0.5,
-            value=0.05,
-            step=0.01,
-            key="scf_noise",
-        )
+        st.slider("Perturbation strength", 0.0, 0.9, 0.35, 0.05, key="scf_perturb")
     with c3:
-        st.number_input("Random seed", min_value=0, max_value=999_999, value=42, key="scf_seed")
+        st.number_input("Random seed", 0, 999_999, 42, key="scf_seed")
 
-    verify_default = st.session_state.get("scf_metrics", ["F1", "F2"])
+    st.checkbox("Keep original anchor rows", value=True, key="scf_keep_original")
+    st.number_input("Overlap noise", 0.0, 0.2, 0.02, 0.01, key="scf_overlap_noise")
+
+    verify_default = st.session_state.get("scf_boost_metrics", ["C1"])
     st.multiselect(
-        "Verify after generation (recompute PyCol)",
-        options=PYCOL_FUSION_METRICS,
+        "Verify metrics (before vs after)",
+        PYCOL_BOOST_METRICS,
         default=verify_default,
         key="scf_verify_metrics",
     )
-    st.text_input("Output filename stem", value="synthetic_fusion", key="scf_output_stem")
+    st.text_input("Output filename stem", value=f"{st.session_state.get('scf_anchor', 'anchor')}_harder", key="scf_output_stem")
 
-    col_back, col_next = st.columns(2)
-    with col_back:
+    c1, c2 = st.columns(2)
+    with c1:
         if st.button("← Back", key="scf_s4_back"):
             st.session_state["scf_step"] = 3
             st.rerun()
-    with col_next:
-        if st.button("Continue to generate →", type="primary", key="scf_s4_next"):
+    with c2:
+        if st.button("Continue →", type="primary", key="scf_s4_next"):
             st.session_state["scf_step"] = 5
             st.rerun()
 
 else:
     st.header("Step 5 — Generate & save")
 
-    mode = st.session_state.get("scf_mode", "targeted")
-    metrics = st.session_state.get("scf_metrics", [])
-    summary_path = Path(st.session_state.get("scf_summary_path", str(resolve_complexity_summary_path())))
-    pick_mode = st.session_state.get("scf_source_mode", "auto")
+    anchor = st.session_state.get("scf_anchor", "")
+    boost = st.session_state.get("scf_boost_metrics", [])
+    if not anchor or not boost:
+        st.error("Complete steps 2–3 first.")
+        st.stop()
 
-    source_files: list[str] = []
-    metric_map: dict[str, str] = {}
-    if pick_mode == "manual":
-        if mode == "targeted":
-            metric_map = dict(st.session_state.get("scf_manual_map", {}))
-        else:
-            source_files = list(st.session_state.get("scf_stress_sources", []))
+    donor_mode = st.session_state.get("scf_donor_mode", "auto")
+    manual = dict(st.session_state.get("scf_manual_donors", {})) if donor_mode == "manual" else {}
 
-    config = SyntheticFusionConfig(
-        mode=mode,
-        target_metrics=metrics,
-        source_files=source_files,
-        metric_to_source=metric_map,
-        samples_per_class=int(st.session_state.get("scf_samples", 500)),
-        coupling_noise=float(st.session_state.get("scf_noise", 0.05)),
+    config = AnchorAugmentConfig(
+        anchor_dataset=anchor,
+        boost_metrics=boost,
+        donor_per_metric=manual,
+        new_samples_per_class=int(st.session_state.get("scf_new_per_class", 200)),
+        keep_original=bool(st.session_state.get("scf_keep_original", True)),
+        perturbation_strength=float(st.session_state.get("scf_perturb", 0.35)),
+        overlap_noise=float(st.session_state.get("scf_overlap_noise", 0.02)),
         random_seed=int(st.session_state.get("scf_seed", 42)),
         pmlb_dir=DEFAULT_OUTPUT_DIR,
-        summary_path=summary_path,
-        verify_metrics=list(st.session_state.get("scf_verify_metrics", [])),
-        output_name=str(st.session_state.get("scf_output_stem", "synthetic_fusion")),
+        summary_path=Path(st.session_state.get("scf_summary_path", str(resolve_complexity_summary_path()))),
+        verify_metrics=list(st.session_state.get("scf_verify_metrics", boost)),
+        output_name=str(st.session_state.get("scf_output_stem", f"{anchor}_harder")),
     )
 
-    if mode == "stress" and pick_mode == "auto":
-        profiled = profile_summary(summary_path=summary_path)
-        config.source_files = [
-            f.removesuffix(".csv")
-            for f in stress_source_datasets(
-                profiled,
-                metrics=metrics,
-                top_n=int(st.session_state.get("scf_top_sources", 4)),
-            )
-        ]
-
-    st.markdown("#### Configuration summary")
     st.json(
         {
-            "mode": config.mode,
-            "metrics": config.target_metrics,
-            "samples_per_class": config.samples_per_class,
-            "coupling_noise": config.coupling_noise,
-            "seed": config.random_seed,
-            "verify": config.verify_metrics,
-            "manual_sources": metric_map or None,
-            "stress_sources": config.source_files or None,
+            "anchor": config.anchor_dataset,
+            "boost_metrics": config.boost_metrics,
+            "new_samples_per_class": config.new_samples_per_class,
+            "keep_original": config.keep_original,
+            "perturbation_strength": config.perturbation_strength,
+            "manual_donors": manual or None,
         }
     )
 
-    col_gen, col_back = st.columns([2, 1])
-    with col_back:
+    col_g, col_b = st.columns([2, 1])
+    with col_b:
         if st.button("← Back", key="scf_s5_back"):
             st.session_state["scf_step"] = 4
             st.rerun()
-
-    with col_gen:
-        run = st.button("Generate synthetic dataset", type="primary", key="scf_generate")
+    with col_g:
+        run = st.button("Generate harder dataset", type="primary", key="scf_generate")
 
     if run:
-        with st.spinner("Fusing patterns and sampling…"):
+        with st.spinner("Generating samples in anchor classes…"):
             try:
-                result = generate_synthetic_dataset(config)
+                result = generate_augmented_dataset(config)
             except Exception as exc:
-                st.error(f"Generation failed: {exc}")
+                st.error(str(exc))
                 st.stop()
-
         st.session_state["scf_result_df"] = result.dataframe
         st.session_state["scf_result_meta"] = {
-            "metric_sources": result.metric_sources,
-            "metadata": result.metadata,
-            "verified_metrics": result.verified_metrics,
-            "patterns": [
+            "donors": [
                 {
-                    "source": p.source_name,
-                    "file": p.source_file,
-                    "metric_tag": p.metric_tag,
-                    "n_features": p.n_features,
+                    "metric": d.metric,
+                    "donor": d.donor_name,
+                    "hardness_rank": d.hardness_rank,
+                    "overlap_intensity": d.overlap_intensity,
                 }
-                for p in result.patterns
+                for d in result.donors
             ],
+            "metadata": result.metadata,
+            "anchor_metrics": result.anchor_metrics,
+            "augmented_metrics": result.augmented_metrics,
         }
-        st.success(
-            f"Generated **{len(result.dataframe)}** rows, "
-            f"**{result.metadata.get('n_features')}** features."
-        )
 
-    result_df: pd.DataFrame | None = st.session_state.get("scf_result_df")
+    result_df = st.session_state.get("scf_result_df")
     meta = st.session_state.get("scf_result_meta")
 
-    if result_df is not None and not result_df.empty:
-        if meta:
-            st.subheader("Fusion metadata")
-            if meta.get("metric_sources"):
-                st.caption("Metric → source file")
-                st.json(meta["metric_sources"])
-            if meta.get("patterns"):
-                st.dataframe(pd.DataFrame(meta["patterns"]), use_container_width=True, hide_index=True)
-            if meta.get("verified_metrics"):
-                st.subheader("Verified PyCol metrics (synthetic set)")
-                vdf = pd.DataFrame(
-                    [
-                        {
-                            "metric": metric_display_name(m, "pycol"),
-                            "value": v,
-                        }
-                        for m, v in meta["verified_metrics"].items()
-                    ]
+    if result_df is not None and not result_df.empty and meta:
+        st.success(
+            f"**{meta['metadata'].get('n_rows_total')}** rows "
+            f"({meta['metadata'].get('n_rows_original')} original + "
+            f"{meta['metadata'].get('n_rows_new')} new)"
+        )
+
+        if meta.get("donors"):
+            st.dataframe(pd.DataFrame(meta["donors"]), use_container_width=True, hide_index=True)
+
+        if meta.get("anchor_metrics"):
+            st.subheader("Metrics: anchor → augmented")
+            rows = []
+            for m in sorted(set(meta["anchor_metrics"]) | set(meta.get("augmented_metrics", {}))):
+                rows.append(
+                    {
+                        "metric": metric_display_name(m, "pycol"),
+                        "anchor": meta["anchor_metrics"].get(m),
+                        "augmented": meta.get("augmented_metrics", {}).get(m),
+                    }
                 )
-                st.dataframe(vdf, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(
+                "Higher/lower meaning depends on metric direction (see Metric Reference). "
+                "Goal: move toward **harder** on chosen boost metrics."
+            )
 
-        st.subheader("Preview")
-        st.dataframe(result_df.head(15), use_container_width=True)
-
-        stem = str(st.session_state.get("scf_output_stem", "synthetic_fusion"))
+        st.dataframe(result_df.head(12), use_container_width=True)
+        stem = str(st.session_state.get("scf_output_stem", f"{anchor}_harder"))
         render_save_results_section(
             result_df,
             default_filename=f"{stem}.csv",
@@ -424,18 +343,15 @@ else:
             results_dir=DEFAULT_SYNTHETIC_DIR,
         )
 
-        st.caption(f"Default synthetic folder: `{DEFAULT_SYNTHETIC_DIR}`")
-
-        if meta and st.button("Add to Dataset Comparison", key="scf_add_comparison"):
-            label_col = config.label_col
+        if st.button("Add to Dataset Comparison", key="scf_add_cmp"):
             if "comparison_datasets" not in st.session_state:
                 st.session_state["comparison_datasets"] = []
             st.session_state["comparison_datasets"].append(
                 {
                     "dataset_name": stem,
                     "df": result_df.copy(),
-                    "label_col": label_col,
-                    "source": "Synthetic Fusion",
+                    "label_col": config.label_col,
+                    "source": f"Augmented from {anchor}",
                 }
             )
             st.success(f"Added **{stem}** to Dataset Comparison.")
