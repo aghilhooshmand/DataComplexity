@@ -19,12 +19,15 @@ from complexity_core import (
 )
 from metric_ui import (
     MetricSelectionConfig,
+    copy_pycol_columns,
     infer_comparison_metric_columns,
     melt_metrics_for_comparison,
     metric_display_name,
     prepare_wide_df_for_metric_charts,
     render_metric_selection_block,
     render_per_metric_bar_charts,
+    render_pycol_recompute_choice,
+    resolve_pycol_existing_row,
 )
 from results_export import render_save_results_section
 
@@ -155,6 +158,8 @@ def compute_for_dataset(
     pycol_parallel_heom: bool = False,
     pycol_preset: str | None = None,
     pycol_progress_callback: Callable[[str], None] | None = None,
+    existing_pycol: dict[str, Any] | None = None,
+    run_pycol: bool = True,
 ) -> dict[str, Any]:
     x, y, _ = prepare_xy(df, label_col=label_col, missing_values=missing_values)
     rec = {"dataset_name": dataset_name}
@@ -169,18 +174,22 @@ def compute_for_dataset(
     if "pycol" in selected_libraries:
         if pycol_preset:
             rec["pycol_metrics_preset"] = pycol_preset
-        rec.update(
-            compute_pycol_metrics(
-                xc,
-                yc,
-                selected_by_library.get("pycol", []),
-                matrix_mode=pycol_matrix_mode,  # type: ignore[arg-type]
-                preset=pycol_preset,
-                parallel_heom=pycol_parallel_heom,
-                heom_n_jobs=4,
-                progress_callback=pycol_progress_callback,
+        if run_pycol:
+            rec.update(
+                compute_pycol_metrics(
+                    xc,
+                    yc,
+                    selected_by_library.get("pycol", []),
+                    matrix_mode=pycol_matrix_mode,  # type: ignore[arg-type]
+                    preset=pycol_preset,
+                    parallel_heom=pycol_parallel_heom,
+                    heom_n_jobs=4,
+                    progress_callback=pycol_progress_callback,
+                    existing_pycol=existing_pycol,
+                )
             )
-        )
+        elif existing_pycol:
+            copy_pycol_columns(rec, existing_pycol)
     if "pymfe" in selected_libraries:
         rec.update(compute_pymfe_metrics(xc, yc, selected_by_library.get("pymfe", [])))
     return rec
@@ -317,8 +326,25 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
         progress = st.progress(0, text="Starting comparison computation...")
         rows: list[dict[str, Any]] = []
         total = len(datasets)
+        pycol_metrics = selected_by_library.get("pycol", [])
+        session_cmp_df = st.session_state.get("comparison_result_df")
         for i, ds in enumerate(datasets, start=1):
             try:
+                existing_pycol: dict[str, Any] | None = None
+                run_pycol = True
+                if "pycol" in selected_libraries:
+                    existing_row = resolve_pycol_existing_row(
+                        ds["dataset_name"],
+                        session_result_df=session_cmp_df,
+                    )
+                    existing_pycol, run_pycol = render_pycol_recompute_choice(
+                        existing_row,
+                        pycol_metrics,
+                        dataset_label=ds["dataset_name"],
+                        key_prefix="cmp",
+                    )
+                    if not run_pycol:
+                        existing_pycol = existing_row
 
                 def _pycol_cb(
                     metric: str,
@@ -376,6 +402,8 @@ if st.button("Compute comparison metrics", type="primary", key="cmp_compute"):
                         pycol_preset=metric_config.pycol_preset,
                         complexity_max_rows=int(cmp_complexity_max_rows),
                         pycol_progress_callback=pcb,
+                        existing_pycol=existing_pycol,
+                        run_pycol=run_pycol,
                     )
                 )
             except Exception as exc:

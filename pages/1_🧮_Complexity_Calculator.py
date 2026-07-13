@@ -17,7 +17,13 @@ from complexity_core import (
     run_tsne,
     subsample_xy_for_complexity,
 )
-from metric_ui import metric_display_name, render_metric_selection_block
+from metric_ui import (
+    copy_pycol_columns,
+    metric_display_name,
+    render_metric_selection_block,
+    render_pycol_recompute_choice,
+    resolve_pycol_existing_row,
+)
 from metric_catalog import PYMFE_COMPLEXITY_METRICS, PYCOL_METRICS
 from results_export import render_save_results_section
 
@@ -186,6 +192,7 @@ with st.expander("How to use this page", expanded=True):
    - **cheap** — 24 metrics, **one** table max (Hive default);
    - **standard** — cheap + ONB + DBC (slow on large *n*);
    - **expensive_core** — T1, NSG, ICSV (two tables).
+5. Click **Compute complexity**. If this dataset already has PyCol values (session results or `results/datasets_complexity_summary.csv`), you will be asked: **remaining metrics only** or **recalculate from scratch**.
    HEOM storage is automatic; optional **Parallel HEOM build** when a table is needed.
 5. Click **Compute complexity**, then **Download CSV** or **Save copy to results/**.
 6. Click **Show t-SNE of dataset** to visualize the dataset in 2D.
@@ -320,6 +327,21 @@ if df is not None:
             progress.progress(45, text="Built dataset summary")
 
             status_box.info(f"Step 3/4: Computing metrics with {', '.join(selected_libraries)}")
+            if "pycol" in selected_libraries:
+                pycol_metrics = selected_by_library.get("pycol", [])
+                existing_row = resolve_pycol_existing_row(
+                    dataset_name,
+                    session_result_df=st.session_state.get("calculator_result_df"),
+                )
+                existing_pycol, run_pycol = render_pycol_recompute_choice(
+                    existing_row,
+                    pycol_metrics,
+                    dataset_label=str(dataset_meta.get("dataset_name", dataset_name)),
+                    key_prefix="calc",
+                )
+            else:
+                existing_pycol, run_pycol = None, True
+
             with st.status("Computing complexity…", expanded=True) as st_status:
                 if "pycol" in selected_libraries:
                     st_status.write(
@@ -349,18 +371,23 @@ if df is not None:
                                 + (f" ({left} to go)" if total else "")
                             )
 
-                    result.update(
-                        compute_pycol_metrics(
-                            xc,
-                            yc,
-                            selected_by_library.get("pycol", []),
-                            matrix_mode=metric_config.pycol_matrix_mode,
-                            preset=metric_config.pycol_preset,
-                            parallel_heom=metric_config.pycol_parallel_heom,
-                            heom_n_jobs=4,
-                            progress_callback=_pycol_prog,
+                    if run_pycol:
+                        result.update(
+                            compute_pycol_metrics(
+                                xc,
+                                yc,
+                                pycol_metrics,
+                                matrix_mode=metric_config.pycol_matrix_mode,
+                                preset=metric_config.pycol_preset,
+                                parallel_heom=metric_config.pycol_parallel_heom,
+                                heom_n_jobs=4,
+                                progress_callback=_pycol_prog,
+                                existing_pycol=existing_pycol,
+                            )
                         )
-                    )
+                    else:
+                        copy_pycol_columns(result, existing_row)
+                        st_status.write("**PyCol:** kept existing saved metrics (no recompute).")
                 if "pymfe" in selected_libraries:
                     st_status.write("**PyMFE:** fitting and extracting…")
                     result.update(compute_pymfe_metrics(xc, yc, selected_by_library.get("pymfe", [])))

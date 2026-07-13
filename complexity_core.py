@@ -225,6 +225,29 @@ def partition_pycol_metrics(metrics: list[str]) -> tuple[list[str], list[str]]:
     return no_dist, need_dist
 
 
+def stored_value_is_present(val: Any) -> bool:
+    """True when a complexity summary cell counts as a saved metric value."""
+    if val is None:
+        return False
+    if isinstance(val, float) and np.isnan(val):
+        return False
+    if isinstance(val, str) and val.strip() == "":
+        return False
+    return True
+
+
+def split_pycol_metrics_by_resume(
+    metrics: list[str],
+    existing: dict[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Return (already_saved, still_pending) for the given metric names."""
+    if not existing:
+        return [], list(metrics)
+    done = [m for m in metrics if stored_value_is_present(existing.get(f"pycol_{m}"))]
+    pending = [m for m in metrics if m not in done]
+    return done, pending
+
+
 def pycol_metrics_need_distance_matrix(metrics: list[str]) -> bool:
     """True if any selected metric reads PyCol's n×n distance matrix."""
     _, need_dist = partition_pycol_metrics(metrics)
@@ -656,25 +679,15 @@ def compute_pycol_metrics(
 
     def _metric_already_done(metric: str) -> bool:
         col = f"pycol_{metric}"
-        if col in out and out[col] is not None:
-            val = out[col]
-            if isinstance(val, float) and np.isnan(val):
-                pass
-            elif isinstance(val, str) and val.strip() == "":
-                pass
-            else:
-                return True
+        if col in out and stored_value_is_present(out[col]):
+            return True
         if existing_pycol is None:
             return False
         val = existing_pycol.get(col)
-        if val is None:
-            return False
-        if isinstance(val, float) and np.isnan(val):
-            return False
-        if isinstance(val, str) and str(val).strip() == "":
-            return False
-        out[col] = val
-        return True
+        if stored_value_is_present(val):
+            out[col] = val
+            return True
+        return False
 
     all_metric_names = no_dist_metrics + need_dist_metrics
     total_metrics = len(all_metric_names)

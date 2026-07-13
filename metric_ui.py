@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -19,6 +21,7 @@ from complexity_core import (
     get_cheap_expensive_pools,
     partition_pycol_metrics,
     resolve_pycol_matrix_mode,
+    split_pycol_metrics_by_resume,
 )
 
 PYCOL_PRESET_LABELS: dict[str, str] = {
@@ -516,3 +519,119 @@ def render_metric_selection_block(
         pycol_parallel_heom=pycol_parallel_heom,
         pycol_preset=pycol_preset,
     )
+
+
+DEFAULT_SUMMARY_CSV = (
+    Path(__file__).resolve().parent / "results" / "datasets_complexity_summary.csv"
+)
+
+
+def _dataframe_row_as_dict(row: pd.Series) -> dict[str, Any]:
+    return {str(k): (None if pd.isna(v) else v) for k, v in row.items()}
+
+
+def _lookup_row_in_df(df: pd.DataFrame | None, dataset_key: str) -> dict[str, Any]:
+    if df is None or df.empty:
+        return {}
+    key = str(dataset_key).strip()
+    key_csv = key if key.endswith(".csv") else f"{key}.csv"
+    for col in ("dataset_file", "dataset_name"):
+        if col not in df.columns:
+            continue
+        series = df[col].astype(str)
+        mask = (series == key) | (series == key_csv)
+        if mask.any():
+            return _dataframe_row_as_dict(df.loc[mask].iloc[0])
+    return {}
+
+
+def resolve_pycol_existing_row(
+    dataset_key: str,
+    *,
+    session_result_df: pd.DataFrame | None = None,
+    summary_csv_path: Path | None = None,
+) -> dict[str, Any]:
+    """Merge prior PyCol values from session results and optional project summary CSV."""
+    merged: dict[str, Any] = {}
+    csv_path = summary_csv_path or DEFAULT_SUMMARY_CSV
+    if csv_path.is_file():
+        try:
+            summary_df = pd.read_csv(csv_path, low_memory=False)
+            merged.update(_lookup_row_in_df(summary_df, dataset_key))
+        except (OSError, pd.errors.EmptyDataError, ValueError):
+            pass
+    session_row = _lookup_row_in_df(session_result_df, dataset_key)
+    merged.update(session_row)
+    return merged
+
+
+def copy_pycol_columns(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, val in source.items():
+        if key.startswith("pycol_"):
+            target[key] = val
+
+
+def render_pycol_recompute_choice(
+    existing_row: dict[str, Any],
+    metrics: list[str],
+    *,
+    dataset_label: str,
+    key_prefix: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    """
+    Ask whether to resume or recompute PyCol metrics when prior values exist.
+
+    Returns ``(existing_pycol, run_pycol)``:
+    - ``(None, True)`` — recompute all selected metrics from scratch
+    - ``(row, True)`` — resume; skip metrics already present in ``row``
+    - ``(row, False)`` — keep saved metrics; do not call ``compute_pycol_metrics``
+    """
+    if not metrics:
+        return None, False
+
+    done, pending = split_pycol_metrics_by_resume(metrics, existing_row or None)
+    if not done:
+        return None, True
+
+    done_labels = ", ".join(metric_display_name(m, "pycol") for m in done[:8])
+    if len(done) > 8:
+        done_labels += f", … (+{len(done) - 8} more)"
+
+    if pending:
+        st.markdown(
+            f"**{dataset_label}** — **{len(done)}** PyCol metric(s) already saved, "
+            f"**{len(pending)}** remaining."
+        )
+        with st.expander("Already saved (will be skipped if you resume)", expanded=False):
+            st.caption(done_labels)
+        choice = st.radio(
+            "PyCol recompute mode",
+            options=[
+                "remaining_only",
+                "from_scratch",
+            ],
+            format_func=lambda x: (
+                f"Compute **remaining {len(pending)}** metric(s) only (recommended)"
+                if x == "remaining_only"
+                else f"**Recalculate all {len(metrics)}** from scratch"
+            ),
+            index=0,
+            key=f"{key_prefix}_pycol_recompute_{dataset_label}",
+        )
+        if choice == "from_scratch":
+            return None, True
+        return existing_row, True
+
+    st.markdown(
+        f"**{dataset_label}** — all **{len(metrics)}** selected PyCol metric(s) are already saved."
+    )
+    with st.expander("Saved metrics", expanded=False):
+        st.caption(done_labels)
+    if st.checkbox(
+        "Recalculate all selected PyCol metrics from scratch",
+        value=False,
+        key=f"{key_prefix}_pycol_force_{dataset_label}",
+    ):
+        return None, True
+    st.info("Keeping existing PyCol values. Uncheck nothing to do, or enable recalculate from scratch.")
+    return existing_row, False

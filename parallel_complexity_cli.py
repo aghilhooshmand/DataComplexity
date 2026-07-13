@@ -28,6 +28,7 @@ from complexity_core import (
     partition_pycol_metrics,
     resolve_pycol_matrix_mode,
     prepare_xy,
+    stored_value_is_present,
     subsample_xy_for_complexity,
 )
 
@@ -413,18 +414,8 @@ def _prepare_result_row_for_upsert(result: dict[str, Any], existing: pd.DataFram
     return prepared
 
 
-def _stored_value_is_present(val: Any) -> bool:
-    if val is None:
-        return False
-    if isinstance(val, float) and np.isnan(val):
-        return False
-    if isinstance(val, str) and val.strip() == "":
-        return False
-    return True
-
-
 def pycol_metric_is_done(existing_row: dict[str, Any], metric: str) -> bool:
-    return _stored_value_is_present(existing_row.get(f"pycol_{metric}"))
+    return stored_value_is_present(existing_row.get(f"pycol_{metric}"))
 
 
 def _read_results_csv(output_csv: Path) -> pd.DataFrame | None:
@@ -933,7 +924,7 @@ def _run_cli_body(args: argparse.Namespace) -> None:
                 out_path, args.upsert_key, str(result[args.upsert_key])
             )
             for k, v in existing_row.items():
-                if k.startswith("pycol_") and _stored_value_is_present(v):
+                if k.startswith("pycol_") and stored_value_is_present(v):
                     result[k] = v
 
         lookup_row = {**existing_row, **result}
