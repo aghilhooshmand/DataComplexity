@@ -40,6 +40,27 @@ DEFAULT_SUMMARY_TSV = DEFAULT_OUTPUT_DIR / SUMMARY_TSV_NAME
 PMLB_DATASETS_BASE = (
     "https://raw.githubusercontent.com/EpistasisLab/penn-ml-benchmarks/master/datasets"
 )
+PMLB_PROFILE_BASE = "https://epistasislab.github.io/pmlb/profile"
+
+
+def pmlb_dataset_basename(dataset_file_or_name: str) -> str:
+    """Strip ``.csv`` / path; return PMLB dataset folder name."""
+    name = Path(str(dataset_file_or_name).strip()).name
+    if name.lower().endswith(".csv"):
+        name = name[:-4]
+    return name
+
+
+def pmlb_download_url(dataset_file_or_name: str) -> str:
+    """Direct download URL for the official PMLB ``.tsv.gz`` (raw GitHub)."""
+    name = pmlb_dataset_basename(dataset_file_or_name)
+    return f"{PMLB_DATASETS_BASE}/{name}/{name}.tsv.gz"
+
+
+def pmlb_profile_url(dataset_file_or_name: str) -> str:
+    """Human-readable PMLB profile / docs page for a dataset."""
+    name = pmlb_dataset_basename(dataset_file_or_name)
+    return f"{PMLB_PROFILE_BASE}/{name}.html"
 
 
 def sanitize_dataset_filename(name: str) -> str:
