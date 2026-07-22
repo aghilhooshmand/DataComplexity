@@ -357,10 +357,35 @@ function sortCompareRows(rows, metrics, sortBy, order) {
   return sorted;
 }
 
+function renderMetricHints(metrics) {
+  const box = document.getElementById("metricHintsList");
+  if (!box) return;
+  const hints = (typeof METRIC_HINTS !== "undefined") ? METRIC_HINTS : {};
+  if (!metrics.length) {
+    box.innerHTML = "<p class='hint-blurb'>Select one or more metrics to see how to read them.</p>";
+    return;
+  }
+  box.innerHTML = metrics.map((m) => {
+    const h = hints[m];
+    if (!h) {
+      return `<div class="hint-card"><div class="hint-top"><span class="hint-name">${escapeHtml(m)}</span><span class="hint-cert likely">[Likely]</span><span class="hint-hard">Higher → more complex (default reading)</span></div><p class="hint-blurb">No project note for this metric; treat higher as harder unless you know otherwise.</p></div>`;
+    }
+    return `<div class="hint-card">
+      <div class="hint-top">
+        <span class="hint-name">${escapeHtml(m)}</span>
+        <span class="hint-cert ${escapeHtml(h.certainty)}">${escapeHtml(h.certaintyLabel)}</span>
+        <span class="hint-hard">${escapeHtml(h.hard)}</span>
+      </div>
+      <p class="hint-blurb">${escapeHtml(h.blurb)}</p>
+    </div>`;
+  }).join("");
+}
+
 function renderCompare() {
   fillCompareSelectors();
   const dsIds = selectedOptions(document.getElementById("compareSelect"));
   const metrics = selectedOptions(document.getElementById("compareMetrics"));
+  renderMetricHints(metrics);
   syncCompareSortOptions(metrics);
   const sortBy = document.getElementById("compareSortBy")?.value || "name";
   const sortOrder = document.getElementById("compareSortOrder")?.value || "desc";

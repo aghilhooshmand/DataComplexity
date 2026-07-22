@@ -346,6 +346,59 @@ a.link:hover {
   text-decoration: underline;
 }
 
+.hint-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.hint-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  background: #fff;
+}
+
+.hint-card .hint-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+
+.hint-card .hint-name {
+  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+
+.hint-card .hint-hard {
+  font-size: 0.88rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hint-card .hint-cert {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hint-card .hint-cert.likely { color: var(--warn); }
+.hint-card .hint-cert.context { color: var(--bad); }
+
+.hint-card .hint-blurb {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.metric-hints {
+  margin-bottom: 1rem;
+}
+
 .btn {
   appearance: none;
   border: 1px solid var(--line);
