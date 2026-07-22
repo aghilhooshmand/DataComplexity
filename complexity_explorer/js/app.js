@@ -323,43 +323,72 @@ function renderCompare() {
   const picked = state.rows.filter((r) => dsIds.includes(r.dataset_file));
 
   destroyChart("compare");
-  // Cycle colors for any number of selected datasets
   const palette = [
     "#0f766e", "#b45309", "#1d4ed8", "#9f1239", "#4d7c0f", "#7c3aed",
     "#0e7490", "#a16207", "#be123c", "#0369a1", "#15803d", "#c2410c",
     "#4338ca", "#a21caf", "#0f766e", "#854d0e",
   ];
 
+  const status = document.getElementById("compareStatus");
+  const chartBox = document.getElementById("compareChartBox");
+
   if (!picked.length || !metrics.length) {
+    if (status) status.textContent = "Select at least one dataset and one metric.";
     document.getElementById("compareTableWrap").innerHTML = "<p class='hint'>Select datasets and metrics.</p>";
     return;
   }
 
-  const many = picked.length > 12;
+  // Many datasets → put datasets on X so every selection is a visible category.
+  // Old layout put the ~8 default metrics on X, which looked like "only 8 bars".
+  const datasetsOnX = picked.length >= metrics.length || picked.length > 6;
+  if (status) {
+    status.textContent = datasetsOnX
+      ? `Plotting all ${picked.length} datasets × ${metrics.length} metrics (datasets on X-axis).`
+      : `Plotting ${picked.length} datasets × ${metrics.length} metrics (metrics on X-axis).`;
+  }
+  if (chartBox) chartBox.classList.toggle("extra-tall", picked.length > 15);
+
+  let labels;
+  let chartDatasets;
+  if (datasetsOnX) {
+    labels = picked.map((r) => r._label);
+    chartDatasets = metrics.map((m, i) => ({
+      label: m,
+      data: picked.map((r) => num(r[metricCol(m)])),
+      backgroundColor: palette[i % palette.length],
+      borderRadius: 4,
+    }));
+  } else {
+    labels = metrics;
+    chartDatasets = picked.map((r, i) => ({
+      label: r._label,
+      data: metrics.map((m) => num(r[metricCol(m)])),
+      backgroundColor: palette[i % palette.length],
+      borderRadius: 6,
+    }));
+  }
+
   state.charts.compare = new Chart(document.getElementById("compareBars"), {
     type: "bar",
-    data: {
-      labels: metrics,
-      datasets: picked.map((r, i) => ({
-        label: r._label,
-        data: metrics.map((m) => num(r[metricCol(m)])),
-        backgroundColor: palette[i % palette.length],
-        borderRadius: many ? 2 : 6,
-        barPercentage: many ? 0.9 : 0.8,
-        categoryPercentage: many ? 0.9 : 0.8,
-      })),
-    },
+    data: { labels, datasets: chartDatasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
-          labels: { boxWidth: 12, font: { size: many ? 9 : 12 } },
+          labels: { boxWidth: 12, font: { size: chartDatasets.length > 10 ? 9 : 12 } },
         },
       },
       scales: {
-        x: { ticks: { maxRotation: 45, minRotation: 0 } },
+        x: {
+          ticks: {
+            maxRotation: 75,
+            minRotation: datasetsOnX ? 45 : 0,
+            autoSkip: false,
+            font: { size: picked.length > 40 ? 8 : 11 },
+          },
+        },
         y: { beginAtZero: true },
       },
     },
@@ -517,6 +546,26 @@ function wireUi() {
   });
   ["compareSelect", "compareMetrics"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", renderCompare);
+  });
+  document.getElementById("compareSelectAll")?.addEventListener("click", () => {
+    const sel = document.getElementById("compareSelect");
+    [...sel.options].forEach((o) => { o.selected = true; });
+    renderCompare();
+  });
+  document.getElementById("compareClearDs")?.addEventListener("click", () => {
+    const sel = document.getElementById("compareSelect");
+    [...sel.options].forEach((o) => { o.selected = false; });
+    renderCompare();
+  });
+  document.getElementById("compareSelectAllMetrics")?.addEventListener("click", () => {
+    const sel = document.getElementById("compareMetrics");
+    [...sel.options].forEach((o) => { o.selected = true; });
+    renderCompare();
+  });
+  document.getElementById("compareClearMetrics")?.addEventListener("click", () => {
+    const sel = document.getElementById("compareMetrics");
+    [...sel.options].forEach((o) => { o.selected = false; });
+    renderCompare();
   });
   ["distVariable", "distBins"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", renderDistributions);

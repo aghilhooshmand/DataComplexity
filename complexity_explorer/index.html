@@ -7,10 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=20260722b" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="js/app.js" defer></script>
+  <script src="js/app.js?v=20260722b" defer></script>
 </head>
 <body>
   <div class="app">
@@ -113,11 +113,17 @@
               <select id="compareMetrics" multiple size="8"></select>
             </label>
           </div>
-          <p class="hint">Hold Ctrl/Cmd to multi-select any number of datasets. Many series make the chart denser; the table always lists every selection.</p>
+          <div class="toolbar">
+            <button type="button" class="btn" id="compareSelectAll">Select all datasets</button>
+            <button type="button" class="btn" id="compareClearDs">Clear datasets</button>
+            <button type="button" class="btn" id="compareSelectAllMetrics">Select all metrics</button>
+            <button type="button" class="btn" id="compareClearMetrics">Clear metrics</button>
+          </div>
+          <p class="hint" id="compareStatus">Hold Ctrl/Cmd to multi-select. With many datasets, the X-axis lists every dataset so none are dropped.</p>
           <div class="split">
             <article class="panel">
               <h3>Metric bars</h3>
-              <div class="chart-box tall"><canvas id="compareBars"></canvas></div>
+              <div class="chart-box tall" id="compareChartBox"><canvas id="compareBars"></canvas></div>
             </article>
             <article class="panel">
               <h3>Side-by-side values</h3>
