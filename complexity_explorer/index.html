@@ -7,10 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20260722b" />
+  <link rel="stylesheet" href="css/styles.css?v=20260722c" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="js/app.js?v=20260722b" defer></script>
+  <script src="js/app.js?v=20260722c" defer></script>
 </head>
 <body>
   <div class="app">
@@ -118,6 +118,17 @@
             <button type="button" class="btn" id="compareClearDs">Clear datasets</button>
             <button type="button" class="btn" id="compareSelectAllMetrics">Select all metrics</button>
             <button type="button" class="btn" id="compareClearMetrics">Clear metrics</button>
+            <label class="field">
+              <span>Sort bars by</span>
+              <select id="compareSortBy"></select>
+            </label>
+            <label class="field">
+              <span>Order</span>
+              <select id="compareSortOrder">
+                <option value="asc">Ascending</option>
+                <option value="desc" selected>Descending</option>
+              </select>
+            </label>
           </div>
           <p class="hint" id="compareStatus">Hold Ctrl/Cmd to multi-select. With many datasets, the X-axis lists every dataset so none are dropped.</p>
           <div class="split">

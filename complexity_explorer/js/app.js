@@ -316,11 +316,56 @@ function selectedOptions(selectEl) {
   return [...selectEl.selectedOptions].map((o) => o.value);
 }
 
+function syncCompareSortOptions(metrics) {
+  const sel = document.getElementById("compareSortBy");
+  if (!sel) return;
+  const prev = sel.value;
+  const opts = [
+    ["name", "Dataset name"],
+    ["n_rows_original", "Rows"],
+    ["n_columns_original", "Columns"],
+    ["n_features_after_encoding", "Features"],
+    ["n_classes", "Classes"],
+    ...metrics.map((m) => [`metric:${m}`, `Metric · ${m}`]),
+  ];
+  sel.innerHTML = opts.map(([v, label]) =>
+    `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`
+  ).join("");
+  const values = opts.map(([v]) => v);
+  sel.value = values.includes(prev) ? prev : (metrics[0] ? `metric:${metrics[0]}` : "name");
+}
+
+function sortCompareRows(rows, metrics, sortBy, order) {
+  const dir = order === "asc" ? 1 : -1;
+  const sorted = [...rows];
+  sorted.sort((a, b) => {
+    if (sortBy === "name") {
+      return dir * a._label.localeCompare(b._label);
+    }
+    let key = sortBy;
+    if (sortBy.startsWith("metric:")) {
+      key = metricCol(sortBy.slice("metric:".length));
+    }
+    const av = num(a[key]);
+    const bv = num(b[key]);
+    if (av === null && bv === null) return dir * a._label.localeCompare(b._label);
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    if (av === bv) return dir * a._label.localeCompare(b._label);
+    return dir * (av - bv);
+  });
+  return sorted;
+}
+
 function renderCompare() {
   fillCompareSelectors();
   const dsIds = selectedOptions(document.getElementById("compareSelect"));
   const metrics = selectedOptions(document.getElementById("compareMetrics"));
-  const picked = state.rows.filter((r) => dsIds.includes(r.dataset_file));
+  syncCompareSortOptions(metrics);
+  const sortBy = document.getElementById("compareSortBy")?.value || "name";
+  const sortOrder = document.getElementById("compareSortOrder")?.value || "desc";
+  let picked = state.rows.filter((r) => dsIds.includes(r.dataset_file));
+  picked = sortCompareRows(picked, metrics, sortBy, sortOrder);
 
   destroyChart("compare");
   const palette = [
@@ -339,12 +384,12 @@ function renderCompare() {
   }
 
   // Many datasets → put datasets on X so every selection is a visible category.
-  // Old layout put the ~8 default metrics on X, which looked like "only 8 bars".
   const datasetsOnX = picked.length >= metrics.length || picked.length > 6;
+  const sortLabel = document.getElementById("compareSortBy")?.selectedOptions?.[0]?.textContent || sortBy;
   if (status) {
     status.textContent = datasetsOnX
-      ? `Plotting all ${picked.length} datasets × ${metrics.length} metrics (datasets on X-axis).`
-      : `Plotting ${picked.length} datasets × ${metrics.length} metrics (metrics on X-axis).`;
+      ? `Plotting all ${picked.length} datasets × ${metrics.length} metrics · sorted by ${sortLabel} (${sortOrder}).`
+      : `Plotting ${picked.length} datasets × ${metrics.length} metrics · sorted by ${sortLabel} (${sortOrder}).`;
   }
   if (chartBox) chartBox.classList.toggle("extra-tall", picked.length > 15);
 
@@ -544,7 +589,7 @@ function wireUi() {
     document.getElementById(id)?.addEventListener("input", renderBrowse);
     document.getElementById(id)?.addEventListener("change", renderBrowse);
   });
-  ["compareSelect", "compareMetrics"].forEach((id) => {
+  ["compareSelect", "compareMetrics", "compareSortBy", "compareSortOrder"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", renderCompare);
   });
   document.getElementById("compareSelectAll")?.addEventListener("click", () => {
