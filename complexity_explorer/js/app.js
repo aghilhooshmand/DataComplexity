@@ -957,5 +957,6 @@ function loadCsv() {
 
 document.addEventListener("DOMContentLoaded", () => {
   wireUi();
+  document.getElementById("gotoGlance")?.addEventListener("click", () => showView("glance"));
   loadCsv();
 });

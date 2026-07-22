@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Data Complexity Explorer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20260722f" />
+  <link rel="stylesheet" href="css/styles.css?v=20260722g" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="js/metric_hints.js?v=20260722f" defer></script>
-  <script src="js/app.js?v=20260722f" defer></script>
+  <script src="js/metric_hints.js?v=20260722g" defer></script>
+  <script src="js/app.js?v=20260722g" defer></script>
 </head>
 <body>
   <div class="app">
@@ -22,9 +23,9 @@
       </div>
       <nav class="menu" aria-label="Main">
         <button type="button" class="menu-item active" data-view="overview">Overview</button>
+        <button type="button" class="menu-item" data-view="glance">Complexity glance</button>
         <button type="button" class="menu-item" data-view="browse">All datasets</button>
         <button type="button" class="menu-item" data-view="compare">Compare</button>
-        <button type="button" class="menu-item" data-view="glance">Complexity glance</button>
         <button type="button" class="menu-item" data-view="distributions">Distributions</button>
         <button type="button" class="menu-item" data-view="coverage">Coverage</button>
       </nav>
@@ -44,6 +45,10 @@
         <!-- OVERVIEW -->
         <section class="view active" id="view-overview" aria-label="Overview">
           <div class="kpi-row" id="kpiRow"></div>
+          <p class="hint">
+            Tip: open <button type="button" class="btn" id="gotoGlance">Complexity glance</button>
+            for hardness bars, heatmap, and radar.
+          </p>
           <div class="split">
             <article class="panel">
               <h3>Size landscape</h3>
