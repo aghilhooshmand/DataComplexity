@@ -23,6 +23,7 @@ const VIEW_META = {
   overview: { kicker: "Overview", title: "Snapshot of computed complexity" },
   browse: { kicker: "All datasets", title: "Searchable complexity table" },
   compare: { kicker: "Compare", title: "Side-by-side dataset metrics" },
+  glance: { kicker: "Complexity glance", title: "Hardness bars, heatmap, and radar" },
   distributions: { kicker: "Distributions", title: "Shape of metrics and sizes" },
   coverage: { kicker: "Coverage", title: "What is complete vs still missing" },
 };
@@ -101,6 +102,7 @@ function showView(name) {
   if (name === "overview") renderOverview();
   if (name === "browse") renderBrowse();
   if (name === "compare") renderCompare();
+  if (name === "glance") renderGlance();
   if (name === "distributions") renderDistributions();
   if (name === "coverage") renderCoverage();
 }
@@ -573,6 +575,262 @@ function renderDistributions() {
   });
 }
 
+function metricHardnessDirection(metric) {
+  const hints = (typeof METRIC_HINTS !== "undefined") ? METRIC_HINTS : {};
+  const h = hints[metric];
+  if (!h) return "higher";
+  if (h.certainty === "context" || /context/i.test(h.hard || "")) return "context";
+  if (/less complex/i.test(h.hard || "")) return "lower";
+  return "higher";
+}
+
+function percentileMap(valuesById) {
+  const entries = Object.entries(valuesById).filter(([, v]) => v !== null);
+  if (!entries.length) return {};
+  const sorted = [...entries].sort((a, b) => a[1] - b[1]);
+  const n = sorted.length;
+  const out = {};
+  if (n === 1) {
+    out[sorted[0][0]] = 0.5;
+    return out;
+  }
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && sorted[j + 1][1] === sorted[i][1]) j += 1;
+    const avgRank = ((i + j) / 2) / (n - 1);
+    for (let k = i; k <= j; k += 1) out[sorted[k][0]] = avgRank;
+    i = j + 1;
+  }
+  return out;
+}
+
+function computeHardnessTable(rows, metrics) {
+  const perMetric = {};
+  for (const m of metrics) {
+    const raw = {};
+    for (const r of rows) {
+      raw[r.dataset_file] = num(r[metricCol(m)]);
+    }
+    const ranks = percentileMap(raw);
+    const dir = metricHardnessDirection(m);
+    const hard = {};
+    for (const id of Object.keys(ranks)) {
+      let h = ranks[id];
+      if (dir === "lower") h = 1 - h;
+      else if (dir === "context") h = Math.abs(h - 0.5) * 2;
+      hard[id] = h;
+    }
+    perMetric[m] = hard;
+  }
+
+  return rows.map((r) => {
+    const scores = {};
+    const used = [];
+    for (const m of metrics) {
+      const h = perMetric[m][r.dataset_file];
+      if (h === undefined || Number.isNaN(h)) continue;
+      scores[m] = h;
+      used.push(h);
+    }
+    const composite = used.length ? used.reduce((a, b) => a + b, 0) / used.length : null;
+    return {
+      row: r,
+      scores,
+      composite,
+      nMetrics: used.length,
+    };
+  }).filter((x) => x.composite !== null);
+}
+
+function heatColor(t) {
+  // 0 easy (teal) → 0.5 mid (amber) → 1 hard (red)
+  const x = Math.max(0, Math.min(1, t));
+  let r;
+  let g;
+  let b;
+  if (x < 0.5) {
+    const u = x / 0.5;
+    r = Math.round(15 + u * (180 - 15));
+    g = Math.round(118 + u * (120 - 118));
+    b = Math.round(110 + u * (9 - 110));
+  } else {
+    const u = (x - 0.5) / 0.5;
+    r = Math.round(180 + u * (185 - 180));
+    g = Math.round(120 + u * (28 - 120));
+    b = Math.round(9 + u * (28 - 9));
+  }
+  return `rgb(${r},${g},${b})`;
+}
+
+function fillGlanceSelectors() {
+  const mSel = document.getElementById("glanceMetrics");
+  const dSel = document.getElementById("glanceRadarDs");
+  if (mSel && !mSel.options.length) {
+    const defaults = ["F1", "N1", "N2", "N3", "borderline", "LSC", "C1", "purity"];
+    mSel.innerHTML = STANDARD_METRICS.map((m) =>
+      `<option value="${escapeHtml(m)}" ${defaults.includes(m) ? "selected" : ""}>${escapeHtml(metricListLabel(m))}</option>`
+    ).join("");
+  }
+  if (dSel && !dSel.options.length) {
+    const sorted = [...state.rows].sort((a, b) => a._label.localeCompare(b._label));
+    dSel.innerHTML = sorted.map((r) =>
+      `<option value="${escapeHtml(r.dataset_file)}">${escapeHtml(r._label)}</option>`
+    ).join("");
+    const radarDefaults = ["iris.csv", "wine_quality_red.csv", "ecoli.csv", "yeast.csv"].filter((d) =>
+      sorted.some((r) => r.dataset_file === d)
+    );
+    [...dSel.options].forEach((o) => { o.selected = radarDefaults.includes(o.value); });
+  }
+}
+
+function renderGlance() {
+  fillGlanceSelectors();
+  const metrics = selectedOptions(document.getElementById("glanceMetrics"));
+  const topN = Number(document.getElementById("glanceTopN")?.value ?? 40);
+  const order = document.getElementById("glanceOrder")?.value || "desc";
+  const status = document.getElementById("glanceStatus");
+
+  if (!metrics.length) {
+    if (status) status.textContent = "Select at least one metric.";
+    return;
+  }
+
+  let scored = computeHardnessTable(state.rows, metrics);
+  scored.sort((a, b) => (order === "asc" ? a.composite - b.composite : b.composite - a.composite));
+  const shown = topN > 0 ? scored.slice(0, topN) : scored;
+
+  if (status) {
+    status.textContent =
+      `Composite hardness from ${metrics.length} metrics · showing ${shown.length} of ${scored.length} datasets ` +
+      `(${order === "desc" ? "hardest first" : "easiest first"}). Context metrics use distance-from-median.`;
+  }
+
+  // 1) Bars
+  destroyChart("glanceBars");
+  const barLabels = shown.map((s) => s.row._label);
+  const barData = shown.map((s) => s.composite);
+  state.charts.glanceBars = new Chart(document.getElementById("glanceBars"), {
+    type: "bar",
+    data: {
+      labels: barLabels,
+      datasets: [{
+        label: "Composite hardness",
+        data: barData,
+        backgroundColor: barData.map((v) => heatColor(v)),
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          min: 0,
+          max: 1,
+          title: { display: true, text: "Hardness (0 easy → 1 hard)" },
+        },
+        y: {
+          ticks: {
+            autoSkip: false,
+            font: { size: shown.length > 50 ? 8 : 11 },
+          },
+        },
+      },
+    },
+  });
+
+  // 2) Heatmap
+  const heat = document.getElementById("glanceHeatmap");
+  if (heat) {
+    const head = ["Dataset", "Composite", ...metrics];
+    const body = shown.map((s) => {
+      const cells = metrics.map((m) => {
+        const v = s.scores[m];
+        if (v === undefined) return "<td class='cell'>—</td>";
+        return `<td class="cell" style="background:${heatColor(v)}" title="${escapeHtml(m)}=${v.toFixed(3)}">${v.toFixed(2)}</td>`;
+      }).join("");
+      return `<tr>
+        <td class="ds">${escapeHtml(s.row._label)}</td>
+        <td class="cell" style="background:${heatColor(s.composite)}">${s.composite.toFixed(2)}</td>
+        ${cells}
+      </tr>`;
+    }).join("");
+    heat.innerHTML = `<table class="heatmap">
+      <thead><tr>${head.map((h, i) => `<th class="${i >= 2 ? "metric" : ""}">${escapeHtml(h)}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+  }
+
+  // 3) Radar — raw values for picked datasets
+  destroyChart("glanceRadar");
+  const radarIds = selectedOptions(document.getElementById("glanceRadarDs")).slice(0, 8);
+  const radarRows = state.rows.filter((r) => radarIds.includes(r.dataset_file));
+  const palette = [
+    "#0f766e", "#b45309", "#1d4ed8", "#9f1239", "#4d7c0f", "#7c3aed", "#0e7490", "#a16207",
+  ];
+
+  if (!radarRows.length || !metrics.length) {
+    return;
+  }
+
+  // Normalize each metric to [0,1] across ALL datasets for fair radar spokes
+  const norm = {};
+  for (const m of metrics) {
+    const vals = state.rows.map((r) => num(r[metricCol(m)])).filter((v) => v !== null);
+    const lo = vals.length ? Math.min(...vals) : 0;
+    const hi = vals.length ? Math.max(...vals) : 1;
+    norm[m] = { lo, hi: hi === lo ? lo + 1 : hi };
+  }
+
+  state.charts.glanceRadar = new Chart(document.getElementById("glanceRadar"), {
+    type: "radar",
+    data: {
+      labels: metrics,
+      datasets: radarRows.map((r, i) => ({
+        label: r._label,
+        data: metrics.map((m) => {
+          const v = num(r[metricCol(m)]);
+          if (v === null) return null;
+          const { lo, hi } = norm[m];
+          return (v - lo) / (hi - lo);
+        }),
+        borderColor: palette[i % palette.length],
+        backgroundColor: palette[i % palette.length] + "33",
+        pointBackgroundColor: palette[i % palette.length],
+        borderWidth: 2,
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const m = metrics[ctx.dataIndex];
+              const row = radarRows[ctx.datasetIndex];
+              const raw = num(row[metricCol(m)]);
+              return `${ctx.dataset.label}: raw=${formatNum(raw)} · scaled=${ctx.parsed.r?.toFixed?.(2) ?? ctx.raw}`;
+            },
+          },
+        },
+      },
+      scales: {
+        r: {
+          min: 0,
+          max: 1,
+          ticks: { display: false },
+          pointLabels: { font: { size: 10 } },
+        },
+      },
+    },
+  });
+}
+
 function renderCoverage() {
   const rows = state.rows;
   const cheapDone = rows.filter((r) => r.cheap_fill === CHEAP_METRICS.length);
@@ -653,6 +911,20 @@ function wireUi() {
     const sel = document.getElementById("compareMetrics");
     [...sel.options].forEach((o) => { o.selected = false; });
     renderCompare();
+  });
+  ["glanceMetrics", "glanceRadarDs", "glanceTopN", "glanceOrder"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", renderGlance);
+  });
+  document.getElementById("glanceMetricsDefault")?.addEventListener("click", () => {
+    const sel = document.getElementById("glanceMetrics");
+    const defaults = new Set(["F1", "N1", "N2", "N3", "borderline", "LSC", "C1", "purity"]);
+    [...sel.options].forEach((o) => { o.selected = defaults.has(o.value); });
+    renderGlance();
+  });
+  document.getElementById("glanceMetricsAll")?.addEventListener("click", () => {
+    const sel = document.getElementById("glanceMetrics");
+    [...sel.options].forEach((o) => { o.selected = true; });
+    renderGlance();
   });
   ["distVariable", "distBins"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", renderDistributions);

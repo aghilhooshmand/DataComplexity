@@ -399,6 +399,47 @@ a.link:hover {
   margin-bottom: 1rem;
 }
 
+.heatmap-wrap {
+  max-height: 560px;
+}
+
+.heatmap {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.78rem;
+}
+
+.heatmap th,
+.heatmap td {
+  padding: 0.35rem 0.45rem;
+  white-space: nowrap;
+}
+
+.heatmap th.metric {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  min-width: 1.6rem;
+  max-width: 2.2rem;
+  font-size: 0.7rem;
+  vertical-align: bottom;
+}
+
+.heatmap td.cell {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: #14201c;
+  min-width: 2.4rem;
+}
+
+.heatmap td.ds {
+  position: sticky;
+  left: 0;
+  background: #f3f7f4;
+  z-index: 1;
+  font-weight: 500;
+}
+
 .btn {
   appearance: none;
   border: 1px solid var(--line);

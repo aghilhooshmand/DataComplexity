@@ -20,6 +20,7 @@ Then open [http://localhost:8765](http://localhost:8765).
 | **Overview** | KPIs, rows×features scatter, class-count bars |
 | **All datasets** | Searchable table (sizes, cheap/standard fill, download/profile links) |
 | **Compare** | Multi-select datasets + metrics, bar chart and value table |
+| **Complexity glance** | Composite hardness bars, heatmap, radar (pick metrics / datasets) |
 | **Distributions** | Histogram for rows, columns, features, classes, or any `pycol_*` metric |
 | **Coverage** | Incomplete cheap/standard lists (MRCA gaps, ONB/DBC) |
 
