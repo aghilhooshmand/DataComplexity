@@ -318,18 +318,24 @@ function selectedOptions(selectEl) {
 
 function renderCompare() {
   fillCompareSelectors();
-  const dsIds = selectedOptions(document.getElementById("compareSelect")).slice(0, 8);
+  const dsIds = selectedOptions(document.getElementById("compareSelect"));
   const metrics = selectedOptions(document.getElementById("compareMetrics"));
   const picked = state.rows.filter((r) => dsIds.includes(r.dataset_file));
 
   destroyChart("compare");
-  const palette = ["#0f766e", "#b45309", "#1d4ed8", "#9f1239", "#4d7c0f", "#7c3aed", "#0e7490", "#a16207"];
+  // Cycle colors for any number of selected datasets
+  const palette = [
+    "#0f766e", "#b45309", "#1d4ed8", "#9f1239", "#4d7c0f", "#7c3aed",
+    "#0e7490", "#a16207", "#be123c", "#0369a1", "#15803d", "#c2410c",
+    "#4338ca", "#a21caf", "#0f766e", "#854d0e",
+  ];
 
   if (!picked.length || !metrics.length) {
     document.getElementById("compareTableWrap").innerHTML = "<p class='hint'>Select datasets and metrics.</p>";
     return;
   }
 
+  const many = picked.length > 12;
   state.charts.compare = new Chart(document.getElementById("compareBars"), {
     type: "bar",
     data: {
@@ -338,13 +344,20 @@ function renderCompare() {
         label: r._label,
         data: metrics.map((m) => num(r[metricCol(m)])),
         backgroundColor: palette[i % palette.length],
-        borderRadius: 6,
+        borderRadius: many ? 2 : 6,
+        barPercentage: many ? 0.9 : 0.8,
+        categoryPercentage: many ? 0.9 : 0.8,
       })),
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom" } },
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { boxWidth: 12, font: { size: many ? 9 : 12 } },
+        },
+      },
       scales: {
         x: { ticks: { maxRotation: 45, minRotation: 0 } },
         y: { beginAtZero: true },
