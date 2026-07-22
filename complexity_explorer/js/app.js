@@ -291,6 +291,23 @@ function renderBrowse() {
   }).join("");
 }
 
+function metricListLabel(metric) {
+  const hints = (typeof METRIC_HINTS !== "undefined") ? METRIC_HINTS : {};
+  const h = hints[metric];
+  if (!h) {
+    return `${metric} → higher: more complex [Likely]`;
+  }
+  if (h.certainty === "context" || /context/i.test(h.hard || "")) {
+    return `${metric} → context-dependent [Context]`;
+  }
+  const lessComplex = /less complex/i.test(h.hard || "");
+  const tag = h.certainty === "certain" ? "" : " [Likely]";
+  if (lessComplex) {
+    return `${metric} → higher: less complex${tag}`;
+  }
+  return `${metric} → higher: more complex${tag}`;
+}
+
 function fillCompareSelectors() {
   const dsSel = document.getElementById("compareSelect");
   const mSel = document.getElementById("compareMetrics");
@@ -307,7 +324,7 @@ function fillCompareSelectors() {
   if (!mSel.options.length) {
     const defaults = ["F1", "N1", "N2", "N3", "LSC", "borderline", "C1", "C2"];
     mSel.innerHTML = STANDARD_METRICS.map((m) =>
-      `<option value="${m}" ${defaults.includes(m) ? "selected" : ""}>${m}</option>`
+      `<option value="${escapeHtml(m)}" ${defaults.includes(m) ? "selected" : ""}>${escapeHtml(metricListLabel(m))}</option>`
     ).join("");
   }
 }

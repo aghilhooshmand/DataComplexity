@@ -7,11 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=20260722d" />
+  <link rel="stylesheet" href="css/styles.css?v=20260722e" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="js/metric_hints.js?v=20260722d" defer></script>
-  <script src="js/app.js?v=20260722d" defer></script>
+  <script src="js/metric_hints.js?v=20260722e" defer></script>
+  <script src="js/app.js?v=20260722e" defer></script>
 </head>
 <body>
   <div class="app">
@@ -110,8 +110,8 @@
               <select id="compareSelect" multiple size="12"></select>
             </label>
             <label class="field grow">
-              <span>Metrics to compare</span>
-              <select id="compareMetrics" multiple size="8"></select>
+              <span>Metrics to compare (higher: more/less complex shown inline)</span>
+              <select id="compareMetrics" multiple size="12"></select>
             </label>
           </div>
           <aside class="metric-hints panel" id="metricHints" aria-live="polite">
